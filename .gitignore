@@ -1,0 +1,23 @@
+# .NET
+**/bin/
+**/obj/
+**/TestResults/
+*.user
+*.suo
+*.cache
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+node_modules/
+dist/
+*.log
+
+# Local PostgreSQL runtime
+.postgres/
+*.pid
+
+# IDE
+.vscode/
+.idea/

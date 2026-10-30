@@ -1,0 +1,45 @@
+# Third-Party Components Inventory
+
+**Status snapshot:** 2026-10-30. The project now has an initialized .NET 10 solution and a React/Vite frontend in this subtree. The inventory below records both the original source review and the packages actually adopted for the current foundation iteration. Re-check exact license, notices, supported versions, advisories, and transitive dependencies before further production work.
+
+## Core technologies present in the implementation
+
+| Component | Source / observed version | License evidence | Intended use | Installed / copied | Status and notes |
+|---|---|---|---|---|---|
+| .NET 10 / ASP.NET Core / Identity | .NET SDK 10.0.403 is pinned; ASP.NET Core Identity is used. See [.NET support policy](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core) and [Identity docs](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity?view=aspnetcore-10.0). | .NET distribution and component notices must be retained/reviewed; no framework code copied. | Web API, Identity account lifecycle, cookies. | Yes | Used by the current solution; SDK resolves through the user-local installation in `scripts/verify.ps1`. |
+| EF Core / Npgsql PostgreSQL provider | `Microsoft.EntityFrameworkCore` 10.0.14 and `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.0; [provider docs](https://www.npgsql.org/efcore/). | Npgsql repo [LICENSE](https://raw.githubusercontent.com/npgsql/efcore.pg/main/LICENSE) grants permissive use under the PostgreSQL License. Review package notices/dependencies and advisories before production. | EF Core persistence and PostgreSQL provider. | Yes | Initial migration applied successfully to local PostgreSQL 17.7; compatibility with other providers/versions is not claimed. |
+| React / TypeScript / Vite | React 19.1.0, TypeScript 5.8.3, Vite 7.3.7; [React](https://react.dev/learn), [Vite](https://vite.dev/guide/). | React and Vite repositories carry MIT licenses: [React license](https://raw.githubusercontent.com/facebook/react/main/LICENSE), [Vite license](https://raw.githubusercontent.com/vitejs/vite/main/LICENSE). | SPA and build tool. | Yes | Client production build verified. |
+| React Router | [Docs](https://reactrouter.com/start/declarative/installation), [source/package](https://github.com/remix-run/react-router); release page lists v8.5.1 and v7.18.5; project version not selected. | [MIT LICENSE](https://raw.githubusercontent.com/remix-run/react-router/main/LICENSE.md). | Client-side routing. | No | Target direction confirmed; select a stable major with API review at scaffold. |
+| TanStack Query | [Docs](https://tanstack.com/query/latest/docs/framework/react/overview), [source](https://github.com/TanStack/query); `@tanstack/react-query` manifest v5.105.0. | [MIT LICENSE](https://raw.githubusercontent.com/TanStack/query/main/LICENSE). | API/server-state caching, mutations, pagination. | No | Recommended; `@tanstack/query-core` is a direct dependency and React is a peer. Check cache clearing on logout/school switch. |
+| React Hook Form | [Docs](https://react-hook-form.com/get-started), [source](https://github.com/react-hook-form/react-hook-form); v7.91.0 stable source; v8 beta observed. | [MIT LICENSE](https://raw.githubusercontent.com/react-hook-form/react-hook-form/master/LICENSE). | Client forms. | No | Recommended stable v7 for initial work; review resolver package separately if added. |
+| Zod | [Docs](https://zod.dev/), [source](https://github.com/colinhacks/zod); v4.6.7 stable manifest. | [MIT LICENSE](https://raw.githubusercontent.com/colinhacks/zod/main/LICENSE). | Client schema validation and inferred TypeScript types. | No | Recommended where schemas reduce duplication; server validation remains authoritative. |
+
+## Candidates awaiting explicit adoption
+
+| Component | Source/version evidence | License | Proposed use | Installed / copied | Decision / caveat |
+|---|---|---|---|---|---|
+| Material UI (`@mui/material`) | [Source](https://github.com/mui/material-ui); stable release [v9.5.0](https://github.com/mui/material-ui/releases/tag/v9.5.0); main package manifest currently identifies 10.0.0-alpha.0. | MIT for core: [LICENSE](https://raw.githubusercontent.com/mui/material-ui/master/LICENSE). | Accessible/shared admin and teacher components. | No | Candidate only; use a stable compatible major, not v10 alpha. Direct/peer dependency set is non-trivial; inspect stable manifest and audit transitive graph. MUI X has separate licensing per package. |
+| Vitest | [Docs](https://vitest.dev/guide/), [source](https://github.com/vitest-dev/vitest); main manifest showed 5.1.0-beta.1. | MIT: [LICENSE](https://raw.githubusercontent.com/vitest-dev/vitest/main/LICENSE). | Frontend unit/component test runner aligned with Vite. | No | Candidate only; select a stable release compatible with Vite and Node. Docs require Vite >=6.4 and Node >=22.12; local Node 24.20 meets the latter. |
+| React Testing Library | [Docs](https://testing-library.com/docs/react-testing-library/intro/), [source](https://github.com/testing-library/react-testing-library); latest inspected release v16.3.3 (2026-08-27). | MIT: [LICENSE](https://raw.githubusercontent.com/testing-library/react-testing-library/main/LICENSE). | User-observable component tests. | No | Candidate only; package has `@testing-library/dom` peer and a runtime dependency; exact tree remains unaudited. |
+| Playwright Test | [Docs](https://playwright.dev/docs/intro), [source](https://github.com/microsoft/playwright); latest inspected release v1.64.1. | Apache-2.0: [LICENSE](https://raw.githubusercontent.com/microsoft/playwright/main/LICENSE). | Small set of browser-level critical journeys. | No | Candidate only; browser downloads and CI time are trade-offs; no MCP server is implied. |
+| xUnit.net v3 | [Docs/source](https://github.com/xunit/xunit); release page lists v3 4.0.2; project says v3 supports .NET 8+. | Apache-2.0: [LICENSE](https://raw.githubusercontent.com/xunit/xunit/main/LICENSE). | Backend unit and integration test framework. | No | Recommended to match brief; choose compatible stable test SDK/runner versions as a set. |
+| Microsoft.Extensions.Logging | [Official docs](https://learn.microsoft.com/en-us/dotnet/core/extensions/logging/overview); version follows the selected ASP.NET Core target. | Framework-provided API/providers; no code copied. | Structured application logging. | No | Recommended baseline; add Serilog/another provider only for a documented sink/retention need. |
+| Finbuckle.MultiTenant | [Source](https://github.com/Finbuckle/Finbuckle.MultiTenant); release [v10.1.3](https://github.com/Finbuckle/Finbuckle.MultiTenant/releases/tag/v10.1.3), supports .NET 10. | Apache-2.0 repo license, plus README-announced Open Source Maintenance Fee for revenue-generating use: [LICENSE](https://raw.githubusercontent.com/Finbuckle/Finbuckle.MultiTenant/main/LICENSE). | Alternative tenant resolution/data isolation library. | No | Not recommended for initial MVP; explicit tenant context is simpler. Terms link returned 404 and the README's displayed effective date is malformed. Resolve the fee terms and obtain commercial review before any use. |
+
+## Adoption records
+
+- **Adopted packages:**
+  - `Microsoft.AspNetCore.Identity.EntityFrameworkCore` 10.0.14
+  - `Microsoft.AspNetCore.OpenApi` 10.0.14
+  - `Microsoft.EntityFrameworkCore` 10.0.14
+  - `Microsoft.EntityFrameworkCore.Design` 10.0.14
+  - `Microsoft.AspNetCore.Mvc.Testing` 10.0.14
+  - `Microsoft.EntityFrameworkCore.InMemory` 10.0.14
+  - `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.0
+  - `xunit` 2.9.2
+  - `xunit.runner.visualstudio` 3.0.0
+  - `react` 19.1.0, `react-dom` 19.1.0, `vite` 7.3.7, `@vitejs/plugin-react` 5.0.0, `typescript` 5.8.3, `@types/react` 19.1.3, `@types/react-dom` 19.1.3
+- **Source code copied or modified:** none.
+- **Recommended but not approved:** TanStack Query, React Hook Form, Zod, MUI, Vitest, React Testing Library, Playwright after their stable versions and licenses are reviewed.
+- **Do not adopt now:** Finbuckle.MultiTenant until its separate fee/terms concern is clarified; no alpha/beta package in production; no unlicensed copied source.
+- **Known caveat:** the `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.0 package line remains the only supported stable provider version available for the current environment, and the package graph still surfaces upstream vulnerability advisories in some cryptography dependencies. This is a dependency-level risk to revisit when a patched provider is available.
