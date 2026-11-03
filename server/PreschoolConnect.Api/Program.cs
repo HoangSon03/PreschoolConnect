@@ -1,18 +1,22 @@
 using System.Threading.RateLimiting;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using PreschoolConnect.Application.Auth;
 using PreschoolConnect.Application.Identity;
 using PreschoolConnect.Application.Models;
 using PreschoolConnect.Infrastructure.Persistence;
+using PreschoolConnect.Api.Auth;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<AuditPolicyExceptionHandler>();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Host=localhost;Port=5432;Database=preschoolconnect;Username=postgres";
@@ -23,6 +27,9 @@ var cookieSecurePolicy = builder.Environment.IsDevelopment()
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 builder.Services.AddScoped<SchoolContextResolver>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<AuditActorContext>();
+builder.Services.AddScoped<IAuditActorProvider, RequestAuditActorProvider>();
 
 builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     {
@@ -121,6 +128,9 @@ async Task<(SchoolContext? Context, IResult? Error)> ResolveRequestTenantAsync(
     }
 
     var resolution = await schoolContextResolver.ResolveAsync(user.Id, selectedSchoolId, cancellationToken);
+    if (resolution.Failure == SchoolContextFailure.SchemaNotReady)
+        return (null, Results.Json(new { message = "Database migrations are pending. An administrator must complete schema initialization before school access." },
+            statusCode: StatusCodes.Status503ServiceUnavailable));
     if (resolution.Failure == SchoolContextFailure.SelectionRequired)
     {
         return (null, Results.Conflict(new { message = "Select one of your active school memberships using X-School-Id." }));
@@ -139,6 +149,11 @@ async Task<(SchoolContext? Context, IResult? Error)> ResolveRequestTenantAsync(
     return (resolution.Context, null);
 }
 
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    StatusCodeSelector = exception => exception is BadHttpRequestException badRequest
+        ? badRequest.StatusCode : StatusCodes.Status500InternalServerError
+});
 app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
@@ -221,6 +236,9 @@ app.MapGet("/api/tenant/context", [Authorize] async (
     }
 
     var resolution = await schoolContextResolver.ResolveAsync(user.Id, selectedSchoolId, cancellationToken);
+    if (resolution.Failure == SchoolContextFailure.SchemaNotReady)
+        return Results.Json(new { message = "Database migrations are pending. An administrator must complete schema initialization before school access." },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
     if (resolution.Failure == SchoolContextFailure.SelectionRequired)
     {
         return Results.Conflict(new { message = "Select one of your active school memberships using X-School-Id." });
@@ -252,13 +270,70 @@ app.MapGet("/api/school-years", [Authorize] async (
         return access.Error;
     }
 
+    var classCounts = await db.Classrooms.IgnoreQueryFilters().AsNoTracking()
+        .Where(classroom => classroom.SchoolId == access.Context!.SchoolId)
+        .GroupBy(classroom => classroom.SchoolYearId)
+        .Select(group => new { Id = group.Key, Count = group.Count() })
+        .ToDictionaryAsync(item => item.Id, item => item.Count, cancellationToken);
     var schoolYears = await db.SchoolYears
         .AsNoTracking()
         .Where(year => year.SchoolId == access.Context!.SchoolId)
         .OrderBy(year => year.StartDate)
         .Select(year => new { year.Id, year.SchoolId, year.Name, year.StartDate, year.EndDate })
         .ToListAsync(cancellationToken);
-    return Results.Ok(schoolYears);
+    return Results.Ok(schoolYears.Select(year => new { year.Id, year.SchoolId, year.Name, year.StartDate, year.EndDate,
+        ClassCount = classCounts.GetValueOrDefault(year.Id) }));
+}).RequireAuthorization();
+
+app.MapGet("/api/admin/school-years/deleted", [Authorize] async (
+    HttpContext httpContext, UserManager<ApplicationUser> userManager,
+    SchoolContextResolver schoolContextResolver, ApplicationDbContext db, CancellationToken cancellationToken) =>
+{
+    var access = await ResolveRequestTenantAsync(httpContext, userManager, schoolContextResolver, cancellationToken, requireSchoolAdmin: true);
+    if (access.Error is not null) return access.Error;
+    return Results.Ok(await db.SchoolYears.IgnoreQueryFilters().AsNoTracking()
+        .Where(year => year.SchoolId == access.Context!.SchoolId && year.LastAction == "D")
+        .OrderByDescending(year => year.LastActionAtUtc)
+        .Select(year => new { year.Id, year.Name, year.StartDate, year.EndDate, year.CreatedAtUtc,
+            year.CreatedByUserId, year.LastAction, year.LastActionByUserId, year.LastActionAtUtc })
+        .Take(200).ToListAsync(cancellationToken));
+}).RequireAuthorization();
+
+app.MapGet("/api/admin/audit-logs", [Authorize] async (
+    HttpContext httpContext, UserManager<ApplicationUser> userManager,
+    SchoolContextResolver schoolContextResolver, ApplicationDbContext db, CancellationToken cancellationToken,
+    int? page) =>
+{
+    if (page is < 1 or > 10000) return Results.BadRequest(new { message = "Page must be between 1 and 10000." });
+    var access = await ResolveRequestTenantAsync(httpContext, userManager, schoolContextResolver, cancellationToken, requireSchoolAdmin: true);
+    if (access.Error is not null) return access.Error;
+    return Results.Ok(await db.AuditLogs.AsNoTracking().Where(log => log.SchoolId == access.Context!.SchoolId)
+        .OrderByDescending(log => log.OccurredAtUtc).ThenBy(log => log.Id)
+        .Skip(((page ?? 1) - 1) * 100).Take(100)
+        .Select(log => new { log.Id, log.EntityType, log.EntityId, log.Action, log.ActorUserId,
+            log.SystemOperation, log.OccurredAtUtc, log.ChangedFields }).ToListAsync(cancellationToken));
+}).RequireAuthorization();
+
+app.MapGet("/api/admin/deleted-records/{entityType}", [Authorize] async (
+    string entityType, int? page, HttpContext httpContext, UserManager<ApplicationUser> userManager,
+    SchoolContextResolver schoolContextResolver, ApplicationDbContext db, CancellationToken cancellationToken) =>
+{
+    if (page is < 1 or > 10000) return Results.BadRequest(new { message = "Page must be between 1 and 10000." });
+    var access = await ResolveRequestTenantAsync(httpContext, userManager, schoolContextResolver, cancellationToken, requireSchoolAdmin: true);
+    if (access.Error is not null) return access.Error;
+    var schoolId = access.Context!.SchoolId;
+    var offset = ((page ?? 1) - 1) * 100;
+    var records = entityType switch
+    {
+        "schools" => await DeletedRecordsAsync(db.Schools.IgnoreQueryFilters().Where(item => item.Id == schoolId), offset, cancellationToken),
+        "school-years" => await DeletedRecordsAsync(db.SchoolYears.IgnoreQueryFilters().Where(item => item.SchoolId == schoolId), offset, cancellationToken),
+        "classrooms" => await DeletedRecordsAsync(db.Classrooms.IgnoreQueryFilters().Where(item => item.SchoolId == schoolId), offset, cancellationToken),
+        "students" => await DeletedRecordsAsync(db.Students.IgnoreQueryFilters().Where(item => item.SchoolId == schoolId), offset, cancellationToken),
+        "memberships" => await DeletedRecordsAsync(db.SchoolMemberships.IgnoreQueryFilters().Where(item => item.SchoolId == schoolId), offset, cancellationToken),
+        "student-accounts" => await DeletedRecordsAsync(db.StudentAccounts.IgnoreQueryFilters().Where(item => item.SchoolId == schoolId), offset, cancellationToken),
+        _ => null
+    };
+    return records is null ? Results.BadRequest(new { message = "Unsupported business entity type." }) : Results.Ok(records);
 }).RequireAuthorization();
 
 app.MapPost("/api/school-years", [Authorize] async (
@@ -282,7 +357,7 @@ app.MapPost("/api/school-years", [Authorize] async (
     }
 
     var name = request.Name?.Trim();
-    if (string.IsNullOrWhiteSpace(name) || name.Length > 100 || request.EndDate <= request.StartDate)
+    if (string.IsNullOrWhiteSpace(name) || name.Length > 100 || request.StartDate == default || request.EndDate <= request.StartDate)
     {
         return Results.ValidationProblem(new Dictionary<string, string[]>
         {
@@ -291,9 +366,17 @@ app.MapPost("/api/school-years", [Authorize] async (
                 : [],
             [nameof(request.EndDate)] = request.EndDate <= request.StartDate
                 ? ["End date must be after start date."]
+                : [],
+            [nameof(request.StartDate)] = request.StartDate == default
+                ? ["Start date is required."]
                 : []
         }.Where(entry => entry.Value.Length > 0).ToDictionary(entry => entry.Key, entry => entry.Value));
     }
+
+    var schemaError = await SchoolYearSchemaErrorAsync(db, cancellationToken);
+    if (schemaError is not null) return schemaError;
+    var conflict = await SchoolYearConflictAsync(db, access.Context!.SchoolId, null, name, request.StartDate, request.EndDate, cancellationToken);
+    if (conflict is not null) return conflict;
 
     var schoolYear = new SchoolYear
     {
@@ -304,7 +387,14 @@ app.MapPost("/api/school-years", [Authorize] async (
         EndDate = request.EndDate
     };
     db.SchoolYears.Add(schoolYear);
-    await db.SaveChangesAsync(cancellationToken);
+    try
+    {
+        await db.SaveChangesAsync(cancellationToken);
+    }
+    catch (DbUpdateException exception) when (SchoolYearConstraintMessage(exception) is not null)
+    {
+        return Results.Conflict(new { message = SchoolYearConstraintMessage(exception) });
+    }
 
     return Results.Created($"/api/school-years/{schoolYear.Id}", new
     {
@@ -314,6 +404,70 @@ app.MapPost("/api/school-years", [Authorize] async (
         schoolYear.StartDate,
         schoolYear.EndDate
     });
+}).RequireAuthorization();
+
+app.MapPut("/api/school-years/{id:guid}", [Authorize] async (
+    Guid id, SchoolYearRequest request, HttpContext httpContext, IAntiforgery antiforgery,
+    UserManager<ApplicationUser> userManager, SchoolContextResolver schoolContextResolver,
+    ApplicationDbContext db, CancellationToken cancellationToken) =>
+{
+    if (!await antiforgery.IsRequestValidAsync(httpContext))
+        return Results.BadRequest(new { message = "A valid antiforgery token is required." });
+    var access = await ResolveRequestTenantAsync(httpContext, userManager, schoolContextResolver, cancellationToken, requireSchoolAdmin: true);
+    if (access.Error is not null) return access.Error;
+    var schoolId = access.Context!.SchoolId;
+    var schemaError = await SchoolYearSchemaErrorAsync(db, cancellationToken);
+    if (schemaError is not null) return schemaError;
+    var year = await db.SchoolYears.SingleOrDefaultAsync(item => item.Id == id && item.SchoolId == schoolId, cancellationToken);
+    if (year is null) return Results.NotFound(new { message = "Không tìm thấy năm học trong trường." });
+    var name = request.Name?.Trim();
+    if (string.IsNullOrWhiteSpace(name) || name.Length > 100 || request.StartDate == default || request.EndDate <= request.StartDate)
+        return Results.BadRequest(new { message = "Tên năm học phải từ 1–100 ký tự và ngày kết thúc phải sau ngày bắt đầu." });
+    var hasClasses = await db.Classrooms.IgnoreQueryFilters().AnyAsync(item => item.SchoolId == schoolId && item.SchoolYearId == id, cancellationToken);
+    if (hasClasses && (request.StartDate != year.StartDate || request.EndDate != year.EndDate))
+        return Results.Conflict(new { message = "Năm học đã có lớp; chỉ được sửa tên, không được thay đổi ngày." });
+    var conflict = await SchoolYearConflictAsync(db, schoolId, id, name, request.StartDate, request.EndDate, cancellationToken);
+    if (conflict is not null) return conflict;
+    year.Name = name;
+    year.StartDate = request.StartDate;
+    year.EndDate = request.EndDate;
+    try
+    {
+        await db.SaveChangesAsync(cancellationToken);
+    }
+    catch (DbUpdateException exception) when (SchoolYearConstraintMessage(exception) is not null)
+    {
+        return Results.Conflict(new { message = SchoolYearConstraintMessage(exception) });
+    }
+    return Results.Ok(new { year.Id, year.SchoolId, year.Name, year.StartDate, year.EndDate });
+}).RequireAuthorization();
+
+app.MapDelete("/api/school-years/{id:guid}", [Authorize] async (
+    Guid id, HttpContext httpContext, IAntiforgery antiforgery,
+    UserManager<ApplicationUser> userManager, SchoolContextResolver schoolContextResolver,
+    ApplicationDbContext db, CancellationToken cancellationToken) =>
+{
+    if (!await antiforgery.IsRequestValidAsync(httpContext))
+        return Results.BadRequest(new { message = "A valid antiforgery token is required." });
+    var access = await ResolveRequestTenantAsync(httpContext, userManager, schoolContextResolver, cancellationToken, requireSchoolAdmin: true);
+    if (access.Error is not null) return access.Error;
+    var schoolId = access.Context!.SchoolId;
+    var schemaError = await SchoolYearSchemaErrorAsync(db, cancellationToken);
+    if (schemaError is not null) return schemaError;
+    var year = await db.SchoolYears.SingleOrDefaultAsync(item => item.Id == id && item.SchoolId == schoolId, cancellationToken);
+    if (year is null) return Results.NotFound(new { message = "Không tìm thấy năm học trong trường." });
+    if (await db.Classrooms.IgnoreQueryFilters().AnyAsync(item => item.SchoolId == schoolId && item.SchoolYearId == id, cancellationToken))
+        return Results.Conflict(new { message = "Không thể xóa năm học đã có lớp. Dữ liệu lớp được giữ nguyên." });
+    db.SchoolYears.Remove(year);
+    try
+    {
+        await db.SaveChangesAsync(cancellationToken);
+    }
+    catch (DbUpdateException exception) when (SchoolYearConstraintMessage(exception) is not null)
+    {
+        return Results.Conflict(new { message = SchoolYearConstraintMessage(exception) });
+    }
+    return Results.NoContent();
 }).RequireAuthorization();
 
 app.MapGet("/api/classes", [Authorize] async (
@@ -391,8 +545,17 @@ app.MapPost("/api/classes", [Authorize] async (
         SchoolYearId = request.SchoolYearId,
         Name = name
     };
+    var schemaError = await SchoolYearSchemaErrorAsync(db, cancellationToken);
+    if (schemaError is not null) return schemaError;
     db.Classrooms.Add(classroom);
-    await db.SaveChangesAsync(cancellationToken);
+    try
+    {
+        await db.SaveChangesAsync(cancellationToken);
+    }
+    catch (DbUpdateException exception) when (SchoolYearConstraintMessage(exception) is not null)
+    {
+        return Results.Conflict(new { message = SchoolYearConstraintMessage(exception) });
+    }
 
     return Results.Created($"/api/classes/{classroom.Id}", new
     {
@@ -457,6 +620,7 @@ app.MapPost("/api/auth/logout", [Authorize] async (HttpContext httpContext, IAnt
 
 using (var scope = app.Services.CreateScope())
 {
+    using var systemOperation = scope.ServiceProvider.GetRequiredService<AuditActorContext>().BeginSystemOperation("development-initialization");
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseInitializer");
     try
     {
@@ -563,8 +727,55 @@ using (var scope = app.Services.CreateScope())
 app.MapControllers();
 app.Run();
 
+static async Task<IResult?> SchoolYearSchemaErrorAsync(ApplicationDbContext db, CancellationToken cancellationToken)
+{
+    if (db.Database.IsNpgsql() && (await db.Database.GetPendingMigrationsAsync(cancellationToken)).Any())
+        return Results.Json(new { message = "Chưa hoàn tất migration cơ sở dữ liệu. Quản trị viên cần kiểm tra năm học trùng tên/chồng ngày trước khi bật thao tác lưu." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    return null;
+}
+
+static async Task<IResult?> SchoolYearConflictAsync(ApplicationDbContext db, Guid schoolId, Guid? id,
+    string name, DateOnly start, DateOnly end, CancellationToken cancellationToken)
+{
+    var normalizedName = name.ToLowerInvariant();
+    var years = db.SchoolYears.Where(year => year.SchoolId == schoolId && (!id.HasValue || year.Id != id.Value));
+    var duplicateName = db.Database.IsNpgsql()
+        ? await years.AnyAsync(year => EF.Functions.Collate(year.Name.Trim(), "pg_c_utf8").ToLower() == normalizedName, cancellationToken)
+        : await years.AnyAsync(year => year.Name.Trim().ToLower() == normalizedName, cancellationToken);
+    if (duplicateName)
+        return Results.Conflict(new { message = "Tên năm học đã tồn tại trong trường (không phân biệt hoa/thường)." });
+    if (await years.AnyAsync(year => year.StartDate <= end && year.EndDate >= start, cancellationToken))
+        return Results.Conflict(new { message = "Khoảng ngày trùng với năm học khác. Ngày bắt đầu phải sau ngày kết thúc của năm trước." });
+    return null;
+}
+
+static string? SchoolYearConstraintMessage(DbUpdateException exception) =>
+    exception is DbUpdateConcurrencyException ? "Dữ liệu vừa được thay đổi hoặc xóa. Tải lại danh sách và thử lại." :
+    exception.InnerException is PostgresException postgres ? postgres.SqlState is "40P01" or "40001"
+        ? "Dữ liệu vừa được thay đổi đồng thời. Tải lại danh sách và thử lại."
+        : postgres.ConstraintName switch
+    {
+        "UX_SchoolYears_NormalizedName" => "Tên năm học đã tồn tại trong trường.",
+        "CK_SchoolYears_NoOverlap" => "Khoảng ngày trùng với năm học khác.",
+        "CK_SchoolYears_DatesInUse" => "Năm học đã có lớp; không được thay đổi ngày hoặc xóa.",
+        "CK_Classrooms_ActiveSchoolYear" => "Năm học đã bị xóa; tải lại danh sách trước khi tạo lớp.",
+        "FK_Classrooms_SchoolYears_SchoolId_SchoolYearId" => "Không thể xóa năm học đã có lớp.",
+        _ => null
+    } : null;
+
+static Task<List<DeletedRecordResponse>> DeletedRecordsAsync<T>(IQueryable<T> query, int offset, CancellationToken cancellationToken) where T : BaseAuditableEntity =>
+    query.AsNoTracking().Where(item => item.LastAction == "D").OrderByDescending(item => item.LastActionAtUtc)
+        .ThenBy(item => EF.Property<Guid>(item, "Id")).Skip(offset).Take(100)
+        .Select(item => new DeletedRecordResponse(EF.Property<Guid>(item, "Id"), item.CreatedAtUtc, item.CreatedByUserId,
+            item.LastAction, item.LastActionByUserId, item.LastActionAtUtc)).ToListAsync(cancellationToken);
+
 public partial class Program;
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SchoolYearRequest(string Name, DateOnly StartDate, DateOnly EndDate);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ClassroomRequest(Guid SchoolYearId, string Name);
+
+public sealed record DeletedRecordResponse(Guid Id, DateTimeOffset CreatedAtUtc, Guid? CreatedByUserId,
+    string LastAction, Guid? LastActionByUserId, DateTimeOffset LastActionAtUtc);

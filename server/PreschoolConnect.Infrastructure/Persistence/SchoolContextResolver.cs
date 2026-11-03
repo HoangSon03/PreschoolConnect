@@ -8,7 +8,8 @@ public enum SchoolContextFailure
     None,
     NoActiveMembership,
     SelectionRequired,
-    MembershipNotFound
+    MembershipNotFound,
+    SchemaNotReady
 }
 
 public sealed record SchoolContext(Guid SchoolId, Guid MembershipId, IReadOnlyList<string> Roles);
@@ -22,6 +23,8 @@ public sealed class SchoolContextResolver(ApplicationDbContext db)
         Guid? selectedSchoolId,
         CancellationToken cancellationToken)
     {
+        if (db.Database.IsNpgsql() && (await db.Database.GetPendingMigrationsAsync(cancellationToken)).Any())
+            return new(null, SchoolContextFailure.SchemaNotReady);
         var memberships = await db.SchoolMemberships
             .AsNoTracking()
             .Include(membership => membership.Roles)

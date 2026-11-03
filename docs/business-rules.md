@@ -16,7 +16,22 @@
 - Each school year and class belongs to exactly one school. Each class belongs to exactly one school year.
 - A teacher may be assigned to multiple classes. A class may have multiple assigned teachers.
 - Validate all teacher/class/student relationships within the same school. Account status and active membership are checked at request time.
-- **Approval required:** uniqueness and overlap rules for school-year date ranges, class names, and teacher assignment effective dates.
+- **Approved 2026-11-03:** school-year names are unique within a school after
+  trimming and case folding (including Vietnamese letters) among non-deleted
+  years. Their date ranges do not overlap, including endpoints; the next year
+  starts after the previous end.
+  End date must be strictly after start date.
+- Only SchoolAdmin of the resolved school may add/edit/delete school years.
+  A year without classes may be renamed, have its dates edited, or be deleted
+  after confirmation by setting LastAction D, never physical deletion. Once it
+  has classes (including deleted classes), only its name may change; dates and
+  deletion are blocked server-side. Never cascade-delete classes or automatically
+  move them to another year.
+- School-year phases in the UI are calculated from the date range, not a new
+  persisted active/archive status or a default-year policy. Years are not
+  automatically created.
+- **Approval required:** further class-name policies and teacher assignment
+  effective-date rules; these school-year changes do not approve them.
 
 ## Enrollment history
 
@@ -53,6 +68,21 @@
 - Copying creates a new draft with copied title/content and `CopyOfAnnouncementId`; it does not copy targets, recipients, read states, or publication timestamps. Attachments are excluded until an attachment module is designed.
 
 ## Audit and privacy
+
+- **Required and implemented 2026-11-03:** existing School, SchoolYear,
+  Classroom, Student, SchoolMembership and StudentAccount records carry UTC
+  creation/latest-action metadata and use soft deletion. D records cannot be
+  updated or restored; creation and identity metadata are immutable.
+- Deletion does not cascade to historical/dependent records. Membership and
+  student-account identity uniqueness remains reserved after soft deletion;
+  school-year and classroom names use active-record uniqueness.
+- Actor identity comes from authentication, never request payloads. Named
+  background/system operations use null user IDs with a historical event naming
+  the operation. Unknown legacy creators remain unknown.
+- Latest-row metadata is not full history. Append-only AuditLogs retain events
+  separately; SchoolAdmin archive/audit reads remain scoped to the resolved school.
+  See [audit and soft-delete policy](./audit-and-soft-delete.md) and
+  [migration/backfill notes](./audit-migration-notes.md).
 
 - Audit high-impact student changes, enrollment transfers, attendance changes, report publication/corrections, announcement publication, and account/permission changes.
 - Keep audit data minimal: actor, school, action, entity reference, timestamp, and allowlisted changed-field metadata. Never log passwords, tokens, full child health notes, or private contact values.

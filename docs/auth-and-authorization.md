@@ -32,6 +32,20 @@ Resolve the authenticated user's active membership server-side on each request. 
 
 Use explicit tenant-scoped application queries, membership/role checks, composite database keys, and authorization tests. EF Core global query filters are a convenience, never the only boundary. See [architecture](./architecture.md) and [database ERD](./database-erd.md).
 
+## Audit actors and archived access
+
+Business row auditing uses the authenticated Identity claim as its actor, never a
+browser-supplied user ID. The persistence layer also checks active account/school
+membership, while endpoint role checks remain mandatory. Deleted schools and
+memberships cannot resolve tenant access. Pending migrations return an explicit
+503 before querying the new audited business schema.
+
+Archived business metadata and AuditLogs are available only through explicit
+SchoolAdmin, resolved-school reads. Filter bypass does not grant cross-school or
+platform administration. Non-request jobs require a named, scoped system
+operation; null historical creators are not inferred from current membership.
+See [audit and soft-delete policy](./audit-and-soft-delete.md).
+
 ## Cookie/session security
 
 - HTTPS in production; `HttpOnly`, `Secure`, and an appropriate `SameSite` policy on auth cookies.

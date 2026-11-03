@@ -1,6 +1,6 @@
 namespace PreschoolConnect.Application.Models;
 
-public class SchoolYear
+public class SchoolYear : BaseAuditableEntity
 {
     public Guid Id { get; set; }
     public Guid SchoolId { get; set; }

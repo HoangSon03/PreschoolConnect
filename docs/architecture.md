@@ -58,6 +58,23 @@ Keep school management, enrollment, attendance, daily reports, announcements, me
 
 Use ASP.NET Core Identity for user/password lifecycle, framework hashing, lockout, and token primitives. Use secure cookies for this same-origin web application. Authorization separately evaluates account status, school membership/role, class assignment, and the student account mapping. Roles are school-scoped membership grants, not global role claims as the only tenant boundary.
 
+## Standard auditing and soft deletion
+
+The six existing business entities share `BaseAuditableEntity`. Central
+ApplicationDbContext SaveChanges/SaveChangesAsync processing assigns UTC metadata
+from the authenticated actor or an explicit scoped system operation, preserves
+creation metadata, converts deletes to D updates, rejects deleted-record updates,
+and appends minimal AuditLogs transactionally. Identity and composite permission
+joins retain separate lifecycles; permission changes still emit historical events.
+The named SoftDelete query filter does not replace tenant/role authorization.
+PostgreSQL guards, restrictive FKs, partial uniqueness and authorized archived
+queries complement EF behavior. Future historical facts/recipient snapshots must
+not inherit parent-active query behavior automatically.
+
+See [audit and soft-delete policy](./audit-and-soft-delete.md) and
+[migration notes](./audit-migration-notes.md) for scope, deletion rules, bypass
+limitations, safe legacy backfill, and explicit no-restoration/forward-only policy.
+
 ## Now / later / deferred
 
 | Now in the design | Prepared, not built in the MVP | Deferred |

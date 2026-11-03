@@ -2,6 +2,16 @@
 
 **Status:** conceptual model for architecture review; not a migration or final schema. IDs are proposed UUIDs. Use PostgreSQL/EF Core constraints as well as application rules. All school-owned rows carry `SchoolId`; the composite keys below make school ownership part of relationships, not just a query convention.
 
+**Implemented audit overlay (2026-11-03):** School, SchoolMembership, Student,
+StudentAccount, SchoolYear and Classroom each have `CreatedAtUtc timestamptz`,
+nullable `CreatedByUserId uuid`, `LastAction varchar(1)`, nullable
+`LastActionByUserId uuid`, and `LastActionAtUtc timestamptz`. Both user references
+are restrictive Identity FKs; CHECK constraints restrict I/U/D and timestamp
+ordering. LastAction D is retained but excluded by the named EF SoftDelete filter.
+The four older CreatedUtc columns remain immutable compatibility fields.
+Identity, permission joins and append-only AuditLogs do not use this filter.
+This does not imply the future conceptual modules below are implemented.
+
 ```mermaid
 erDiagram
   APP_USER {
@@ -129,9 +139,10 @@ erDiagram
     uuid ActorUserId FK
     string Action
     string EntityType
-    string EntityId
-    datetime OccurredAt
-    json Metadata
+    uuid EntityId
+    datetime OccurredAtUtc
+    string SystemOperation
+    json ChangedFields
   }
 
   APP_USER ||--o{ SCHOOL_MEMBERSHIP : joins
@@ -170,6 +181,34 @@ erDiagram
 - `Student`: unique `(SchoolId, StudentId)` and `(SchoolId, StudentCode)`.
 - `StudentAccount`: unique `StudentId` and unique `UserId` (one user maps to at most one student globally); composite FKs `(SchoolId, StudentId)` and `(SchoolId, UserId)` point to the same-school student and membership. Require the linked membership to have `Parent` role in the application and test it.
 - `SchoolYear`: `EndDate > StartDate`; school-local date policy must be settled. `Classroom`: composite FK `(SchoolId, SchoolYearId)`; recommended unique `(SchoolYearId, Name)`.
+- Implemented school-year integrity (approved 2026-11-03): a per-school unique
+  expression index on trimmed, lowercased names uses PostgreSQL 17's built-in
+  `pg_c_utf8` collation for Unicode case folding even in a `C`-locale database.
+  SQL triggers reject inclusive overlapping date ranges, date changes/deletion
+  when classes exist, and changes to year identity/ownership. Year and class
+  writes share a per-school transaction advisory lock to serialize integrity
+  checks under concurrent writers. The existing class/year FK remains restrictive.
+  No extension, package, new persisted state or provider is added. These SQL
+  guards are migration-defined; they are not EF model annotations.
+- `20261103032915_StandardizedAuditing` adds row metadata and AuditLogs without
+  recreating business tables. Its partial school-year name index and overlap guard
+  consider LastAction other than D; retained classes, including tombstones, still
+  lock year dates/deletion. The classroom unique name index is active-only.
+  School slug, membership identity, and student-account identity uniqueness remain
+  all-record rules. Membership-role parent deletion becomes restrictive instead
+  of cascading; student-account Identity and all audit actor FKs are restrictive.
+  Database guards forbid physical business deletion and AuditLogs mutation.
+  Safe unknown-actor backfill and forward-only recovery are documented in
+  [migration notes](./audit-migration-notes.md); see
+  [entity deletion/history policies](./audit-and-soft-delete.md).
+- `20261103030000_SchoolYearIntegrity` first checks old names/date ranges and
+  refuses conflicting data without rewriting it. An operator must resolve legacy
+  conflicts deliberately before applying it. If migrations remain pending,
+  year/class mutations return 503 rather than bypassing database guards. The
+  application's existing development startup still logs degraded initialization;
+  that does not mean migrations succeeded.
+  See [PostgreSQL 17 collations](https://www.postgresql.org/docs/17/collation.html)
+  and [advisory locks](https://www.postgresql.org/docs/17/explicit-locking.html#ADVISORY-LOCKS).
 - `ClassTeacher`: composite FKs to the same-school class and membership; unique `(SchoolId, ClassId, UserId)`.
 - `StudentEnrollment`: composite FKs to same-school student and class; `EndDate` is exclusive and must be after `StartDate`. Transfers close the prior enrollment and create the next inside one transaction. Enforce non-overlapping student date ranges in PostgreSQL (a GiST exclusion constraint with `btree_gist` is a candidate) and validate the same invariant in application use cases. Confirm required extension/constraint approach before schema work.
 - `AttendanceRecord`: unique `(EnrollmentId, AttendanceDate)`; status restricted to the MVP attendance set; checkout cannot precede check-in; date must fall within the enrollment's effective interval.

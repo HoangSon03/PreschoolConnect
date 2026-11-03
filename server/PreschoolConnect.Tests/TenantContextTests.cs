@@ -98,6 +98,7 @@ public class TenantContextTests : IClassFixture<CustomWebApplicationFactory>
     private async Task<(Guid SchoolId, Guid UnassignedSchoolId)> EnsureTenantFixtureAsync(string email, bool additionalMembership = false)
     {
         using var scope = _factory.Services.CreateScope();
+        using var systemOperation = scope.ServiceProvider.GetRequiredService<PreschoolConnect.Application.Auth.AuditActorContext>().BeginSystemOperation("tenant-test-fixture");
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var user = await userManager.FindByEmailAsync(email);
