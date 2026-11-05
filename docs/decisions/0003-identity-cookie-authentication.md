@@ -1,6 +1,6 @@
-# ADR 0003: ASP.NET Core Identity and secure cookies
+# ADR 0003: ASP.NET Core Identity and JWT Bearer authentication
 
-- **Status:** Accepted by the project brief; configuration details remain subject to security review.
+- **Status:** Updated by explicit product request: JWT replaces cookies; Identity and school-scoped authorization remain.
 - **Date:** 2026-10-30
 
 ## Context
@@ -9,21 +9,21 @@ The first application is a same-origin React SPA and ASP.NET Core API with schoo
 
 ## Decision
 
-Use ASP.NET Core Identity for user/password management, framework hashing, account lockout and token primitives. Use secure cookie authentication for browser sessions. Build application authorization separately around active school membership/role, class assignment, account status, and parent-to-student mapping.
+Use ASP.NET Core Identity for user/password management, framework hashing, account lockout and token primitives. Use 15-minute HS256 JWT Bearer access tokens, held only in React memory, without refresh tokens. Validate issuer, audience, signature, expiry, active account and a keyed security-stamp marker on every request. Logout rotates the stamp for all sessions. Build application authorization separately around active school membership/role, class assignment, account status, and parent-to-student mapping. Admin aliases SchoolAdmin, never platform authority.
 
 Use HTTPS, `HttpOnly`, `Secure`, an appropriate `SameSite` policy, antiforgery protection on state-changing requests, explicit logout/session lifecycle, and rate limiting on credential/setup endpoints. Never implement custom password hashing.
 
 ## Alternatives considered
 
 - Custom auth/password storage: rejected as unnecessary security-sensitive reinvention.
-- JWT bearer tokens in browser storage: not selected for the initial same-origin app; they introduce different storage/rotation concerns and do not remove the need for authorization.
+- Persistent JWT browser storage/refresh tokens: rejected for this iteration; memory-only access tokens limit persistence and simplify revocation.
 - External identity provider: deferred; school-managed local accounts are required and no provider is selected.
 - ASP.NET Core Identity global roles as the complete authorization model: rejected because global roles do not prove school/class/student scope.
 
 ## Consequences and trade-offs
 
 - Framework account primitives reduce custom security code but still require careful configuration and patching.
-- Cookie authentication is convenient for same-origin browsing but requires CSRF protection because browsers attach cookies automatically.
+- JWT replaces the original cookie transport. Reload/expiry requires fresh login; there is no silent renewal. Existing CSRF checks are retained, and old auth cookies no longer authenticate APIs.
 - Account provisioning and first-login token delivery remain an unresolved product decision because no email/SMS integration is in scope.
 - API clients must handle unauthenticated/forbidden responses as API responses, not depend on interactive redirects.
 

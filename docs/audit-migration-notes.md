@@ -47,18 +47,25 @@ never invent users, discard rows, or relax tenant constraints to get past them.
 3. Schedule a maintenance window: backfill and index replacement take table locks;
    duration depends on row counts. No concurrent-index or zero-downtime guarantee
    is made for this transactional EF migration.
-4. Apply forward migrations using the existing approved EF/development workflow.
+4. Apply forward migrations as an explicit operator action:
+
+   ```powershell
+   dotnet run --no-launch-profile --project .\server\PreschoolConnect.Api\PreschoolConnect.Api.csproj -- --migrate
+   ```
+
+   Configure `ConnectionStrings:MigrationConnection` for a migration-only role
+   when available; the command falls back to `ConnectionStrings:DefaultConnection`
+   for local development. Ordinary API startup never applies migrations.
    Do not alter applied migrations or automatically repair legacy conflicts.
 5. Verify migration history, constraints/index predicates, API readiness, and a
    synthetic authorized insert/update/delete. Pending migrations continue to
    block tenant resolution and real year/class writes with 503 before new audit
    columns are queried.
 
-During this task the ordinary loopback database on port 5432 was unavailable,
-so its applied migration history could **not** be confirmed. It was not started,
-inspected for row data, or automatically migrated. Development startup already
-runs MigrateAsync; restarting it against an existing database can apply pending
-migrations, so complete the checklist first.
+The ordinary loopback database's applied migration history has not been verified
+by this remediation. Do not start it or infer its schema from source files. The
+explicit migration command must be run only after an authorized operator
+confirms the target, backup, migration history, and legacy-data checks.
 
 ## Tests
 

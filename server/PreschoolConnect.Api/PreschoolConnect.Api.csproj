@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
     <ProjectReference Include="..\PreschoolConnect.Application\PreschoolConnect.Application.csproj" />
     <ProjectReference Include="..\PreschoolConnect.Infrastructure\PreschoolConnect.Infrastructure.csproj" />
   </ItemGroup>

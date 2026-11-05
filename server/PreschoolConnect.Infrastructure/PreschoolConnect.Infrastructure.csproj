@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\PreschoolConnect.Application\PreschoolConnect.Application.csproj" />
   </ItemGroup>
 

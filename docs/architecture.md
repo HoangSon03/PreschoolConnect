@@ -2,13 +2,13 @@
 
 ## Decision status
 
-The product brief confirms a modular monolith, ASP.NET Core, EF Core, PostgreSQL, Identity, cookie authentication, and a React SPA. The initial solution, API, client, and base dependencies now exist. Tenant controls and business modules remain incomplete; see [implementation status](./implementation-status.md).
+The product brief confirms a modular monolith, ASP.NET Core, EF Core, PostgreSQL, Identity, and a React SPA. The approved authentication update replaces cookies with short-lived JWT Bearer tokens. Tenant controls and business modules remain incomplete; see [implementation status](./implementation-status.md).
 
 ## Runtime shape
 
 ```mermaid
 flowchart LR
-  Browser["React + TypeScript SPA"] -->|"same-origin HTTPS, cookie + CSRF token"| API["ASP.NET Core Web API"]
+  Browser["React + TypeScript SPA"] -->|"same-origin HTTPS, JWT Bearer + CSRF token"| API["ASP.NET Core Web API"]
   API --> App["Application use cases and authorization"]
   App --> Infra["EF Core persistence and integrations"]
   Infra --> DB[("PostgreSQL")]
@@ -16,11 +16,11 @@ flowchart LR
   Identity --> DB
 ```
 
-**Recommended deployment shape:** serve the SPA and API under one origin (for example, reverse-proxy `/api` to ASP.NET Core). This keeps the browser cookie model straightforward. A separate API origin is not selected; if later required, revisit CORS, credentialed requests, cookie policy, and CSRF controls together.
+**Recommended deployment shape:** serve the SPA and API under one origin (for example, reverse-proxy `/api` to ASP.NET Core). A separate API origin is not selected; if later required, revisit CORS, credentialed antiforgery requests, and CSRF controls together.
 
 ## Project boundaries
 
-Start with three production projects and a test project:
+The current solution has three production projects and a test project:
 
 ```text
 server/
@@ -39,6 +39,12 @@ This avoids a separate Domain project before its value is clear while keeping HT
 
 Dependency direction: API → Application; Infrastructure implements application-facing persistence/identity abstractions and is composed by API; Application does not depend on ASP.NET Core HTTP or EF Core. Frontend API calls and server-state behavior stay behind the client feature/lib boundary.
 
+The current API still registers most Minimal API handlers, request validation,
+and EF queries inline in `Program.cs`; Application primarily contains models
+and shared authorization/audit context. Extract a feature endpoint group or
+application operation when extending that feature, rather than treating the
+target layering above as already complete.
+
 Do not introduce Generic Repository, Unit of Work, CQRS, MediatR, a DI container, microservices, queues, or a migration framework beyond EF Core migrations by default. Add a pattern only for a concrete problem.
 
 ## Modular monolith
@@ -56,7 +62,7 @@ Keep school management, enrollment, attendance, daily reports, announcements, me
 
 ## Authentication and authorization
 
-Use ASP.NET Core Identity for user/password lifecycle, framework hashing, lockout, and token primitives. Use secure cookies for this same-origin web application. Authorization separately evaluates account status, school membership/role, class assignment, and the student account mapping. Roles are school-scoped membership grants, not global role claims as the only tenant boundary.
+Use ASP.NET Core Identity for user/password lifecycle, framework hashing, lockout, and token primitives. API issues validated 15-minute JWT Bearer tokens; React holds them only in memory, without refresh tokens. Infrastructure implements Application authentication contracts using Identity and live memberships. Account status and stamp are checked on each Bearer request; logout revokes all account tokens. Authorization separately evaluates school membership/role, class assignment, and student mapping. Roles never replace the tenant boundary. See [authentication contracts](./auth-and-authorization.md).
 
 ## Standard auditing and soft deletion
 
@@ -75,11 +81,14 @@ See [audit and soft-delete policy](./audit-and-soft-delete.md) and
 [migration notes](./audit-migration-notes.md) for scope, deletion rules, bypass
 limitations, safe legacy backfill, and explicit no-restoration/forward-only policy.
 
-## Now / later / deferred
+## Current implementation, target, and deferred work
 
-| Now in the design | Prepared, not built in the MVP | Deferred |
+| Implemented foundation | Targeted but incomplete | Deferred |
 |---|---|---|
-| School ownership on entities; server-resolved tenant context; Identity and cookie/CSRF plan; enrollment history; focused API/application/infrastructure boundaries; EF Core/PostgreSQL. | Shared-schema multi-school data, composite tenant keys, membership-based role resolution, tenant-isolation test strategy. | Tenant provisioning/billing, database-per-tenant, RLS as primary enforcement, distributed services, external notifications, private-media system, unrestricted agent database access. |
+| Identity + JWT Bearer and CSRF; active membership-based tenant resolution; school-scoped year/class APIs; PostgreSQL persistence; auditing and soft delete on the six existing business entities. | School selection UI for multiple memberships; broader authorization coverage; student/enrollment/attendance/report/announcement workflows; fuller separation of API handlers and application operations. | Tenant provisioning/billing, database-per-tenant, RLS as primary enforcement, distributed services, external notifications, private-media system, unrestricted agent database access. |
+
+Database migrations are not run during ordinary API startup. Use the explicit
+operator-controlled migration command in the [migration notes](./audit-migration-notes.md).
 
 ## Workspace boundary
 

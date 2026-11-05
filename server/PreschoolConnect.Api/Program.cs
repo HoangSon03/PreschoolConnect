@@ -6,20 +6,37 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using PreschoolConnect.Api;
 using PreschoolConnect.Application.Auth;
 using PreschoolConnect.Application.Identity;
 using PreschoolConnect.Application.Models;
 using PreschoolConnect.Infrastructure.Persistence;
 using PreschoolConnect.Api.Auth;
+using PreschoolConnect.Infrastructure.Identity;
 
-var builder = WebApplication.CreateBuilder(args);
+var migrationCommand = args.Contains("--migrate", StringComparer.Ordinal);
+var resetAdminPasswordCommand = args.Contains("--reset-local-admin-password", StringComparer.Ordinal);
+var provisionAdminCommand = args.Contains("--provision-local-admin", StringComparer.Ordinal);
+if (new[] { migrationCommand, resetAdminPasswordCommand, provisionAdminCommand }.Count(value => value) > 1)
+    throw new InvalidOperationException("Run provisioning, password reset and migration commands separately.");
+var builderArgs = args.Where(argument => argument is not "--migrate" and not "--reset-local-admin-password" and not "--provision-local-admin").ToArray();
+var builder = WebApplication.CreateBuilder(builderArgs);
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<AuthenticationExceptionHandler>();
 builder.Services.AddExceptionHandler<AuditPolicyExceptionHandler>();
+builder.Services.AddSingleton<DatabaseStartupOperations>();
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Host=localhost;Port=5432;Database=preschoolconnect;Username=postgres";
+var connectionString = migrationCommand
+    ? builder.Configuration.GetConnectionString("MigrationConnection")
+        ?? builder.Configuration.GetConnectionString("DefaultConnection")
+    : builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    var requiredConnection = migrationCommand ? "MigrationConnection or DefaultConnection" : "DefaultConnection";
+    throw new InvalidOperationException($"ConnectionStrings:{requiredConnection} must be configured.");
+}
 var cookieSecurePolicy = builder.Environment.IsDevelopment()
     ? CookieSecurePolicy.SameAsRequest
     : CookieSecurePolicy.Always;
@@ -31,7 +48,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<AuditActorContext>();
 builder.Services.AddScoped<IAuditActorProvider, RequestAuditActorProvider>();
 
-builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
+builder.Services.AddIdentityCore<ApplicationUser>(options =>
     {
         options.Password.RequireDigit = true;
         options.Password.RequireLowercase = true;
@@ -41,41 +58,18 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
         options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
         options.Lockout.MaxFailedAccessAttempts = 5;
         options.Lockout.AllowedForNewUsers = true;
+        options.User.RequireUniqueEmail = true;
     })
+    .AddRoles<ApplicationRole>()
+    .AddSignInManager()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
-builder.Services.ConfigureApplicationCookie(options =>
-{
-    options.Cookie.Name = "PreschoolConnect.Auth";
-    options.Cookie.HttpOnly = true;
-    options.Cookie.SameSite = SameSiteMode.Lax;
-    options.Cookie.SecurePolicy = cookieSecurePolicy;
-    options.ExpireTimeSpan = TimeSpan.FromHours(8);
-    options.SlidingExpiration = true;
-    options.Events.OnRedirectToLogin = context =>
-    {
-        if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
-        {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return Task.CompletedTask;
-        }
-
-        context.Response.Redirect(context.RedirectUri);
-        return Task.CompletedTask;
-    };
-    options.Events.OnRedirectToAccessDenied = context =>
-    {
-        if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return Task.CompletedTask;
-        }
-
-        context.Response.Redirect(context.RedirectUri);
-        return Task.CompletedTask;
-    };
-});
+builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
+builder.Services.AddScoped<AdminProvisioner>();
+builder.Services.AddAuthentication();
+if (!migrationCommand && !resetAdminPasswordCommand && !provisionAdminCommand)
+    builder.Services.AddJwtAuthentication(builder.Configuration);
 
 builder.Services.AddAuthorization();
 builder.Services.AddAntiforgery(options =>
@@ -102,6 +96,37 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+if (provisionAdminCommand)
+{
+    if (!app.Environment.IsDevelopment() ||
+        new NpgsqlConnectionStringBuilder(connectionString).Host is not ("127.0.0.1" or "localhost" or "::1") ||
+        !app.Configuration.GetValue("Bootstrap:ConfirmDisposableTarget", false))
+        throw new InvalidOperationException("Provisioning requires Development, loopback PostgreSQL and Bootstrap:ConfirmDisposableTarget=true.");
+    if (!Guid.TryParse(app.Configuration["Bootstrap:SchoolId"], out var schoolId))
+        throw new InvalidOperationException("Configure Bootstrap:SchoolId.");
+    await using var scope = app.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<AdminProvisioner>().ProvisionAsync(
+        app.Configuration["Bootstrap:AdminEmail"] ?? "", app.Configuration["Bootstrap:AdminPassword"] ?? "", schoolId);
+    app.Logger.LogInformation("Initial administrator provisioned; no HTTP server started.");
+    return;
+}
+
+if (resetAdminPasswordCommand)
+{
+    if (!app.Environment.IsDevelopment() ||
+        new NpgsqlConnectionStringBuilder(connectionString).Host is not ("127.0.0.1" or "localhost" or "::1"))
+        throw new InvalidOperationException("Local password reset requires Development and a loopback PostgreSQL target.");
+    await using var scope = app.Services.CreateAsyncScope();
+    await LocalAdminPasswordReset.RunAsync(scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>());
+    return;
+}
+
+if (migrationCommand)
+{
+    await app.Services.GetRequiredService<DatabaseStartupOperations>().ApplyMigrationsAsync();
+    return;
+}
 
 async Task<(SchoolContext? Context, IResult? Error)> ResolveRequestTenantAsync(
     HttpContext httpContext,
@@ -191,26 +216,7 @@ app.MapGet("/api/auth/csrf", (IAntiforgery antiforgery, HttpContext httpContext)
     return Results.Ok(new { requestToken = tokens.RequestToken });
 });
 
-app.MapGet("/api/auth/me", [Authorize] async (HttpContext httpContext, UserManager<ApplicationUser> userManager) =>
-{
-    var user = await userManager.GetUserAsync(httpContext.User);
-    if (user is null)
-    {
-        return Results.Unauthorized();
-    }
-
-    var roles = await userManager.GetRolesAsync(user);
-    return Results.Ok(new
-    {
-        userId = user.Id,
-        email = user.Email,
-        firstName = user.FirstName,
-        lastName = user.LastName,
-        fullName = string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))),
-        isActive = user.IsActive,
-        roles
-    });
-});
+app.MapAuthenticationEndpoints();
 
 app.MapGet("/api/tenant/context", [Authorize] async (
     HttpContext httpContext,
@@ -566,162 +572,9 @@ app.MapPost("/api/classes", [Authorize] async (
     });
 }).RequireAuthorization();
 
-app.MapPost("/api/auth/login", async ([FromBody] LoginRequest request, HttpContext httpContext, IAntiforgery antiforgery, SignInManager<ApplicationUser> signInManager, UserManager<ApplicationUser> userManager) =>
+if (app.Environment.IsDevelopment())
 {
-    if (!await antiforgery.IsRequestValidAsync(httpContext))
-    {
-        return Results.BadRequest(new { message = "A valid antiforgery token is required." });
-    }
-
-    if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
-    {
-        return Results.BadRequest(new { message = "Email and password are required." });
-    }
-
-    var user = await userManager.FindByEmailAsync(request.Email.Trim());
-    if (user is null || !user.IsActive)
-    {
-        return Results.Unauthorized();
-    }
-
-    var result = await signInManager.PasswordSignInAsync(user, request.Password, true, true);
-    if (!result.Succeeded)
-    {
-        return Results.Unauthorized();
-    }
-
-    var roles = await userManager.GetRolesAsync(user);
-    return Results.Ok(new
-    {
-        message = "Login successful.",
-        user = new
-        {
-            userId = user.Id,
-            email = user.Email,
-            firstName = user.FirstName,
-            lastName = user.LastName,
-            fullName = string.Join(' ', new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))),
-            isActive = user.IsActive,
-            roles
-        }
-    });
-}).RequireRateLimiting("login");
-
-app.MapPost("/api/auth/logout", [Authorize] async (HttpContext httpContext, IAntiforgery antiforgery, SignInManager<ApplicationUser> signInManager) =>
-{
-    if (!await antiforgery.IsRequestValidAsync(httpContext))
-    {
-        return Results.BadRequest(new { message = "A valid antiforgery token is required." });
-    }
-
-    await signInManager.SignOutAsync();
-    return Results.Ok(new { message = "Signed out." });
-});
-
-using (var scope = app.Services.CreateScope())
-{
-    using var systemOperation = scope.ServiceProvider.GetRequiredService<AuditActorContext>().BeginSystemOperation("development-initialization");
-    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseInitializer");
-    try
-    {
-        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        await db.Database.MigrateAsync();
-
-        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-
-        if (app.Environment.IsDevelopment())
-        {
-            var school = await db.Schools.FirstOrDefaultAsync(x => x.Slug == "northside");
-            if (school is null)
-            {
-                school = new School { Id = Guid.NewGuid(), Name = "Northside Academy", Slug = "northside", IsActive = true };
-                db.Schools.Add(school);
-                await db.SaveChangesAsync();
-            }
-
-            if (!await roleManager.RoleExistsAsync("SchoolAdmin"))
-            {
-                var roleResult = await roleManager.CreateAsync(new ApplicationRole { Name = "SchoolAdmin", SchoolId = school.Id });
-                if (!roleResult.Succeeded)
-                {
-                    throw new InvalidOperationException(string.Join("; ", roleResult.Errors.Select(x => x.Description)));
-                }
-            }
-
-            var adminPassword = app.Configuration["Seed:AdminPassword"];
-            if (string.IsNullOrWhiteSpace(adminPassword))
-            {
-                logger.LogInformation("Skipping development administrator seed; configure Seed__AdminPassword to opt in.");
-            }
-            else
-            {
-                const string adminEmail = "admin@northside.test";
-                var adminUser = await userManager.FindByEmailAsync(adminEmail);
-                if (adminUser is null)
-                {
-                    adminUser = new ApplicationUser
-                    {
-                        Id = Guid.NewGuid(),
-                        UserName = adminEmail,
-                        Email = adminEmail,
-                        FirstName = "System",
-                        LastName = "Administrator",
-                        SchoolId = school.Id,
-                        IsActive = true,
-                        EmailConfirmed = true,
-                    };
-
-                    var createResult = await userManager.CreateAsync(adminUser, adminPassword);
-                    if (!createResult.Succeeded)
-                    {
-                        throw new InvalidOperationException(string.Join("; ", createResult.Errors.Select(x => x.Description)));
-                    }
-                }
-
-                if (!await userManager.IsInRoleAsync(adminUser, "SchoolAdmin"))
-                {
-                    var roleResult = await userManager.AddToRoleAsync(adminUser, "SchoolAdmin");
-                    if (!roleResult.Succeeded)
-                    {
-                        throw new InvalidOperationException(string.Join("; ", roleResult.Errors.Select(x => x.Description)));
-                    }
-                }
-
-                var membership = await db.SchoolMemberships
-                    .Include(x => x.Roles)
-                    .FirstOrDefaultAsync(x => x.SchoolId == school.Id && x.UserId == adminUser.Id);
-                if (membership is null)
-                {
-                    membership = new SchoolMembership
-                    {
-                        Id = Guid.NewGuid(),
-                        SchoolId = school.Id,
-                        UserId = adminUser.Id,
-                        IsActive = true
-                    };
-                    membership.Roles.Add(new SchoolMembershipRole
-                    {
-                        MembershipId = membership.Id,
-                        Role = SchoolRoleNames.SchoolAdmin
-                    });
-                    db.SchoolMemberships.Add(membership);
-                    await db.SaveChangesAsync();
-                }
-            }
-        }
-
-        logger.LogInformation("Database initialized for Preschool Connect.");
-    }
-    catch (Exception ex)
-    {
-        if (!app.Environment.IsDevelopment())
-        {
-            throw;
-        }
-
-        logger.LogWarning(ex, "PostgreSQL is unavailable during startup; app will continue with a degraded local configuration.");
-    }
+    await app.Services.GetRequiredService<DatabaseStartupOperations>().InitializeDevelopmentDataAsync();
 }
 
 app.MapControllers();

@@ -1,10 +1,43 @@
 # Implementation Status
 
-Status verified on 2026-10-31. PreschoolConnect is a standalone project,
-separate from `PersonalFinanceTracker`, with its own Git repository on `main`.
-This update has not been committed.
+## Commit-snapshot verification
 
-## Completed and verified
+The isolated Auth commit snapshot passed 71 backend tests with zero failures
+or skips, including disposable loopback PostgreSQL and model/snapshot checks.
+Its 8 frontend session tests and TypeScript/Vite production build passed.
+This verification did not access the ordinary application database or run
+authenticated browser end-to-end tests.
+
+## JWT authentication update
+
+- Replaced Identity login cookies with 15-minute JWT Bearer access tokens.
+  Existing Identity user/password storage, framework hashing and lockout are
+  reused; no schema or business-module change. Admin aliases SchoolAdmin;
+  active membership remains the authority for each school's access.
+- Login, current-user and logout contracts are documented in
+  [authentication and authorization](./auth-and-authorization.md). Logout and
+  password resets revoke account tokens; every Bearer request checks active
+  account, stamp and current membership roles. Pending schema is an explicit 503.
+- React stores tokens only in memory and clears protected data on expiry/401.
+  Reload requires login. No refresh flow or UI redesign.
+- Startup requires private JWT configuration and defaults to no seed writes.
+  Explicit disposable-local admin provisioning uses environment configuration;
+  no public registration, hardcoded password, implicit creation or elevation.
+- Focused verification: **65 backend tests passed, zero failed/skipped**,
+  including actual PostgreSQL Identity/provisioning/revocation and pending-schema
+  handling on a freshly initialized isolated loopback cluster. Existing
+  SchoolYear/Class authorization and tenant tests passed unchanged apart from
+  Bearer login transport. **16 frontend tests**, TypeScript and Vite build passed.
+  The test cluster was stopped and removed; the ordinary database was not
+  migrated or seeded. Production account handoff and deployment key management
+  remain operator responsibilities.
+
+## Historical baseline before the JWT update
+
+The following records describe the earlier baseline, not the current
+authentication transport or provisioning behavior.
+
+### Completed and verified
 
 - .NET 10 solution with API, Application, Infrastructure, and test projects.
 - React + TypeScript + Vite client.
@@ -18,7 +51,7 @@ This update has not been committed.
 - The test/build commands from `scripts/verify.ps1` passed in this environment: backend tests **13/13 passed** and Vite production build passed.
 - Local API and Vite smoke checks passed; authenticated browser testing created and displayed a synthetic school year and class.
 
-## Partial, not complete
+### Partial, not complete
 
 - School membership/tenant groundwork and school setup exist, but role provisioning, school selection UI for users with multiple memberships, and broader authorization coverage remain incomplete.
 - The client currently uses a single application page; it does not yet have feature routing or complete product workflows.
@@ -26,11 +59,11 @@ This update has not been committed.
 - Local PostgreSQL runtime folders were restored from the existing `.postgres\postgresql.zip` archive. The startup script does not yet extract missing runtime payloads on a clean checkout.
 - Setup documentation, a dependable one-command startup experience, and CI remain incomplete.
 
-## Not implemented
+### Not implemented
 
 Teacher/class assignments, student accounts and enrollment/transfer history, attendance, daily reports, announcements, parent portal, audit workflows, accessibility review, and pilot operations.
 
-## Environment notes
+### Environment notes
 
 - .NET SDK 10.0.403 is available under the user-local `.dotnet` installation; system-wide SDK is 9.0.102. `scripts/verify.ps1` configures the local SDK.
 - Node.js 24.22.2 and npm 11.19.1 are available.
@@ -38,14 +71,14 @@ Teacher/class assignments, student accounts and enrollment/transfer history, att
 - Docker CLI and Graphify are unavailable. `dotnet-ef` 10.0.14 was used from a temporary location; it was not added to project dependencies.
 - No cloud database, paid service, or real child data has been configured.
 
-## Latest verification
+### Latest verification
 
 - The equivalent checks from `scripts/verify.ps1` → passed: 13 backend tests passed and the production frontend build passed.
 - PostgreSQL `pg_isready` → accepting connections on `127.0.0.1:5432`.
 - API `/api/health` and `/api/health/ready` returned HTTP 200; readiness reported the database connected.
 - Authenticated browser smoke test → successful sign-in over local HTTP, school workspace loading, school year creation, and class creation with synthetic values.
 
-## Next implementation steps
+### Next implementation steps
 
 1. Make local startup repeatable and document the separate PostgreSQL, API, and client processes.
 2. Add school selection for users with multiple memberships and database-backed integration coverage.

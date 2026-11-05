@@ -93,6 +93,8 @@ public class TenantContextTests : IClassFixture<CustomWebApplicationFactory>
         loginRequest.Headers.Add("X-CSRF-TOKEN", tokens!.requestToken);
         var loginResponse = await client.SendAsync(loginRequest);
         Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+        var payload = await loginResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", payload.GetProperty("accessToken").GetString());
     }
 
     private async Task<(Guid SchoolId, Guid UnassignedSchoolId)> EnsureTenantFixtureAsync(string email, bool additionalMembership = false)

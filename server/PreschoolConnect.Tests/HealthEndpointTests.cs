@@ -2,8 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PreschoolConnect.Application.Identity;
+using PreschoolConnect.Infrastructure.Persistence;
 using Xunit;
 
 namespace PreschoolConnect.Tests;
@@ -102,7 +104,9 @@ public class HealthEndpointTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var payload = await response.Content.ReadFromJsonAsync<LoginResponse>();
         Assert.NotNull(payload);
-        Assert.Equal("Login successful.", payload!.message);
+        Assert.False(string.IsNullOrWhiteSpace(payload!.accessToken));
+        Assert.Equal("Bearer", payload.tokenType);
+        Assert.Equal(900, payload.expiresIn);
     }
 
     [Fact]
@@ -134,6 +138,24 @@ public class HealthEndpointTests : IClassFixture<CustomWebApplicationFactory>
         Assert.False(string.IsNullOrWhiteSpace(payload!.requestToken));
     }
 
+    [Fact]
+    public async Task DevelopmentWithoutSeedSupportsHttpAntiforgeryWithoutBusinessWrites()
+    {
+        using var factory = new CustomWebApplicationFactory { EnableDevelopmentSeed = false };
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("http://localhost"),
+            HandleCookies = true
+        });
+        var response = await client.GetAsync("/api/auth/csrf");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(string.IsNullOrWhiteSpace((await response.Content.ReadFromJsonAsync<CsrfResponse>())!.requestToken));
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        Assert.Empty(await db.Schools.IgnoreQueryFilters().ToListAsync());
+        Assert.Empty(await db.AuditLogs.ToListAsync());
+    }
+
     private static async Task<HttpResponseMessage> PostWithCsrfAsync(HttpClient client, string path, object payload)
     {
         var tokenResponse = await client.GetAsync("/api/auth/csrf");
@@ -156,7 +178,9 @@ public class HealthEndpointTests : IClassFixture<CustomWebApplicationFactory>
 
     private sealed class LoginResponse
     {
-        public string message { get; set; } = string.Empty;
+        public string accessToken { get; set; } = string.Empty;
+        public string tokenType { get; set; } = string.Empty;
+        public int expiresIn { get; set; }
     }
 
     private sealed class ReadinessResponse

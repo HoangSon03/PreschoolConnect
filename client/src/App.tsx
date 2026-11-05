@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { clearSession, getAccessToken, setSession, request, mutate, responseMessage } from './lib/api';
 
 type HealthStatus = {
   status: string;
@@ -37,15 +38,6 @@ type Classroom = {
   name: string;
 };
 
-async function responseMessage(response: Response): Promise<string> {
-  try {
-    const body = await response.json() as { message?: string; title?: string };
-    return body.message ?? body.title ?? `Request failed (${response.status}).`;
-  } catch {
-    return `Request failed (${response.status}).`;
-  }
-}
-
 export default function App() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [user, setUser] = useState<UserInfo | null>(null);
@@ -74,34 +66,32 @@ export default function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    const ended = () => {
+      setUser(null); setTenant(null); setSchoolYears([]); setClassrooms([]);
+      setNotice(null); setError('Session ended. Please sign in again.');
+    };
+    addEventListener('auth-session-ended', ended);
+    return () => removeEventListener('auth-session-ended', ended);
+  }, []);
+
   const loadSchoolData = async () => {
+    const session = getAccessToken();
     setSchoolLoading(true);
     setError(null);
     try {
-      const tenantResponse = await fetch('/api/tenant/context', { credentials: 'include' });
-      if (!tenantResponse.ok) {
-        throw new Error(await responseMessage(tenantResponse));
-      }
-
-      const currentTenant = await tenantResponse.json() as TenantContext;
-      setTenant(currentTenant);
-      const headers = { 'X-School-Id': currentTenant.schoolId };
-      const [yearsResponse, classesResponse] = await Promise.all([
-        fetch('/api/school-years', { credentials: 'include', headers }),
-        fetch('/api/classes', { credentials: 'include', headers })
+      const currentTenant = await request<TenantContext>('/api/tenant/context');
+      const [years, classes] = await Promise.all([
+        request<SchoolYear[]>('/api/school-years', currentTenant.schoolId),
+        request<Classroom[]>('/api/classes', currentTenant.schoolId)
       ]);
-      if (!yearsResponse.ok) {
-        throw new Error(await responseMessage(yearsResponse));
-      }
-      if (!classesResponse.ok) {
-        throw new Error(await responseMessage(classesResponse));
-      }
-
-      const years = await yearsResponse.json() as SchoolYear[];
+      if (session !== getAccessToken()) return;
+      setTenant(currentTenant);
       setSchoolYears(years);
-      setClassrooms(await classesResponse.json() as Classroom[]);
+      setClassrooms(classes);
       setClassSchoolYearId((current) => current || years[0]?.id || '');
     } catch (requestError) {
+      if (session !== getAccessToken()) return;
       setTenant(null);
       setSchoolYears([]);
       setClassrooms([]);
@@ -111,39 +101,32 @@ export default function App() {
     }
   };
 
-  const getAntiforgeryToken = async () => {
-    const response = await fetch('/api/auth/csrf', { credentials: 'include' });
-    if (!response.ok) {
-      throw new Error(await responseMessage(response));
-    }
-    const result = await response.json() as { requestToken: string };
-    return result.requestToken;
-  };
-
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setNotice(null);
     try {
-      const requestToken = await getAntiforgeryToken();
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': requestToken },
-        body: JSON.stringify({ email, password })
-      });
-
-      if (!response.ok) {
-        throw new Error(await responseMessage(response));
-      }
-
-      const payload = await response.json() as { user: UserInfo };
+      const response = await mutate('/api/auth/login', { email, password });
+      const payload = await response.json() as { user: UserInfo; accessToken: string; expiresAtUtc: string };
+      setSession(payload.accessToken, payload.expiresAtUtc);
       setUser(payload.user);
       setPassword('');
       await loadSchoolData();
     } catch (requestError) {
+      clearSession();
       setUser(null);
       setError(requestError instanceof Error ? requestError.message : 'Sign in failed.');
+    }
+  };
+
+  const handleLogout = async () => {
+    setError(null);
+    try {
+      await mutate('/api/auth/logout');
+      clearSession();
+      setError(null);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Sign out failed.');
     }
   };
 
@@ -156,17 +139,8 @@ export default function App() {
     setError(null);
     setNotice(null);
     try {
-      const requestToken = await getAntiforgeryToken();
-      const response = await fetch('/api/school-years', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-TOKEN': requestToken,
-          'X-School-Id': tenant.schoolId
-        },
-        body: JSON.stringify({ name: yearName, startDate: yearStartDate, endDate: yearEndDate })
-      });
+      const response = await mutate('/api/school-years',
+        { name: yearName, startDate: yearStartDate, endDate: yearEndDate }, tenant.schoolId);
       if (!response.ok) {
         throw new Error(await responseMessage(response));
       }
@@ -190,17 +164,8 @@ export default function App() {
     setError(null);
     setNotice(null);
     try {
-      const requestToken = await getAntiforgeryToken();
-      const response = await fetch('/api/classes', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-TOKEN': requestToken,
-          'X-School-Id': tenant.schoolId
-        },
-        body: JSON.stringify({ name: className, schoolYearId: classSchoolYearId })
-      });
+      const response = await mutate('/api/classes',
+        { name: className, schoolYearId: classSchoolYearId }, tenant.schoolId);
       if (!response.ok) {
         throw new Error(await responseMessage(response));
       }
@@ -278,6 +243,7 @@ export default function App() {
             <p>Email: {user.email}</p>
             <p>Identity roles: {user.roles.join(', ') || 'None'}</p>
             <p>Active account: {user.isActive ? 'Yes' : 'No'}</p>
+            <button type="button" onClick={() => void handleLogout()}>Sign out</button>
           </div>
         ) : (
           <p>No active user session.</p>

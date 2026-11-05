@@ -16,22 +16,25 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"PreschoolConnectTests-{Guid.NewGuid():N}";
     public bool UseInMemoryDatabase { get; set; } = true;
+    public bool EnableDevelopmentSeed { get; set; } = true;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
-        if (!UseInMemoryDatabase)
-        {
-            builder.ConfigureAppConfiguration((_, configuration) =>
-                configuration.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["ConnectionStrings:DefaultConnection"] =
-                        "Host=127.0.0.1;Port=1;Database=unavailable;Username=test;Timeout=1;Command Timeout=1"
-                }));
-        }
+        builder.ConfigureAppConfiguration((_, configuration) =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Seed:Enabled"] = EnableDevelopmentSeed.ToString(),
+                ["Jwt:Issuer"] = "preschool-tests",
+                ["Jwt:Audience"] = "preschool-test-client",
+                ["Jwt:SigningKey"] = "synthetic-tests-only-signing-key-not-for-deployment",
+                ["ConnectionStrings:DefaultConnection"] =
+                    "Host=127.0.0.1;Port=1;Database=unavailable;Username=test;Timeout=1;Command Timeout=1"
+            }));
 
         builder.ConfigureServices(services =>
         {
+            services.AddControllers().AddApplicationPart(typeof(AuthRoleTestController).Assembly);
             services.RemoveAll(typeof(DbContextOptions<ApplicationDbContext>));
             services.RemoveAll(typeof(ApplicationDbContext));
             services.RemoveAll(typeof(IDbContextOptionsConfiguration<ApplicationDbContext>));

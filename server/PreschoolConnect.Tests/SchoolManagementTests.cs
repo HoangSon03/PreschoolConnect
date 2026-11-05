@@ -283,6 +283,8 @@ public class SchoolManagementTests
     {
         var response = await PostWithCsrfAsync(client, "/api/auth/login", new { email, password = Password });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", payload.GetProperty("accessToken").GetString());
     }
 
     private static async Task<(string Email, Guid SchoolId, Guid OtherSchoolYearId)> CreateMemberAsync(

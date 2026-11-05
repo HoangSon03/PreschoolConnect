@@ -13,7 +13,7 @@ Preschool Connect handles child and parent information. This document sets requi
 ## Required controls
 
 1. **Authentication:** ASP.NET Core Identity, framework password hashing, no public registration, account activation/deactivation, lockout, recovery, logout, and secure session lifecycle.
-2. **Browser session:** HTTPS in production; `HttpOnly`, `Secure`, appropriate `SameSite`; antiforgery protection for state changes; no state-changing GET; CORS limited to the intended same-origin arrangement. Development permits HTTP-only loopback by matching cookie `Secure` policy to the request; production always requires secure cookies.
+2. **Browser session:** 15-minute JWT Bearer access token held only in React memory; validate signature/HS256, issuer, audience, expiry, active account and Identity stamp on each request. No refresh tokens or browser-storage persistence. Logout revokes all account sessions. HTTPS in production; antiforgery protection for state changes; no state-changing GET; CORS limited to the intended same-origin arrangement. Antiforgery cookies remain HttpOnly/SameSite Strict and Secure outside Development.
 3. **Authorization:** policy/use-case checks for account state, school membership, role, class assignment, and student mapping. Never trust a client `SchoolId` or `StudentId`.
 4. **Tenant persistence:** school columns, explicit tenant-scoped queries, composite same-school foreign keys, uniqueness constraints, and cross-tenant API/data tests. Query filters/RLS may be defense in depth only.
 5. **Input and output:** validate all request bodies, identifiers, dates, status transitions, batch limits, and target sets; avoid returning private fields not required by the caller.
@@ -23,7 +23,13 @@ Preschool Connect handles child and parent information. This document sets requi
 9. **Dependencies/supply chain:** use locked, supported versions; inspect direct/transitive dependency licenses and vulnerability advisories before adoption and continuously after lockfile creation. Do not adopt unlicensed source.
 10. **AI/tooling:** no unrestricted production DB/MCP access. Use least privilege, fake data, reviewed patches, and no secret-bearing logs or prompts.
 
-The initial API slice now provides `/api/auth/csrf`; login and logout require the returned token in `X-CSRF-TOKEN`. Login is limited to 10 requests per minute per remote IP, in addition to Identity lockout. These controls are covered by focused tests but have not had a production security review, proxy-aware rate-limit configuration, or load assessment. The local PostgreSQL cluster uses development trust authentication and binds only to loopback; never expose or reuse it for production data.
+The initial API slice now provides `/api/auth/csrf`; login and logout require the returned token in `X-CSRF-TOKEN`. Login is limited to 10 requests per minute per remote IP, in addition to Identity lockout. These controls are covered by focused tests but have not had a production security review, proxy-aware rate-limit configuration, or load assessment. Development Vite and Docker Compose PostgreSQL bindings default to loopback. Keep the local PostgreSQL cluster synthetic-only; never expose or reuse it for production data.
+
+EF Core migrations are applied only by the explicit operator command documented
+in the [migration notes](./audit-migration-notes.md), not during normal API
+startup. Production should use separately managed runtime and migration
+credentials where practical; never grant the application runtime role schema
+change privileges merely because migrations need them.
 
 ## Sensitive fields and minimization
 
