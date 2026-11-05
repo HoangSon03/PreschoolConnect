@@ -16,7 +16,9 @@ public partial class ApplicationDbContext
     private static readonly HashSet<string> AuditedBusinessFields =
     [
         "Name", "Slug", "IsActive", "StartDate", "EndDate", "SchoolYearId",
-        "FirstName", "LastName", "PreferredName", "DateOfBirth"
+        "FirstName", "LastName", "PreferredName", "DateOfBirth",
+        "Degree", "Graduated", "University", "Experience", "StartDate", "Contract", "Work",
+        "Role", "StartedAtUtc", "EndedAtUtc", "UserId", "Gender", "Phone", "Email", "Address", "Birthday", "Certificate"
     ];
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -81,6 +83,19 @@ public partial class ApplicationDbContext
                     throw new AuditPolicyException("Student-account identity cannot be reassigned.");
                 if (entry.Entity is SchoolMembership && !Equals(entry.Property(nameof(SchoolMembership.UserId)).CurrentValue, stored[nameof(SchoolMembership.UserId)]))
                     throw new AuditPolicyException("Membership identity cannot be reassigned.");
+                if (entry.Entity is Classroom && !Equals(entry.Property(nameof(Classroom.SchoolYearId)).CurrentValue, stored[nameof(Classroom.SchoolYearId)]))
+                    throw new AuditPolicyException("A classroom's original school year cannot be changed.");
+                if (entry.Entity is Teacher && stored[nameof(Teacher.UserId)] is Guid linkedUser &&
+                    !Equals(entry.Property(nameof(Teacher.UserId)).CurrentValue, linkedUser))
+                    throw new AuditPolicyException("A linked teacher identity cannot be reassigned.");
+                if (entry.Entity is TeacherAssignment &&
+                    (!Equals(entry.Property(nameof(TeacherAssignment.TeacherId)).CurrentValue, stored[nameof(TeacherAssignment.TeacherId)]) ||
+                     !Equals(entry.Property(nameof(TeacherAssignment.ClassroomId)).CurrentValue, stored[nameof(TeacherAssignment.ClassroomId)]) ||
+                     !Equals(entry.Property(nameof(TeacherAssignment.StartedAtUtc)).CurrentValue, stored[nameof(TeacherAssignment.StartedAtUtc)]) ||
+                     !Equals(entry.Property(nameof(TeacherAssignment.Role)).CurrentValue, stored[nameof(TeacherAssignment.Role)]) ||
+                     entry.Property(nameof(TeacherAssignment.EndedAtUtc)).CurrentValue is null ||
+                     stored[nameof(TeacherAssignment.EndedAtUtc)] is not null))
+                    throw new AuditPolicyException("Assignment history is immutable except for ending an active assignment.");
             }
             await ValidateActiveParentsAsync(entry, async, cancellationToken);
             if (entry.State == EntityState.Deleted) await ValidateDeletionAsync(entry, async, cancellationToken);
@@ -198,6 +213,17 @@ public partial class ApplicationDbContext
             if (!newStudent && !await ExistsAsync(Students.Where(item => item.Id == account.StudentId && item.SchoolId == schoolId), async, cancellationToken))
                 throw new AuditPolicyException("Student accounts require a non-deleted student in the same school.");
         }
+        if (entry.Entity is Teacher teacher && teacher.UserId.HasValue &&
+            (entry.State == EntityState.Added || entry.Property(nameof(Teacher.UserId)).IsModified) &&
+            !await ExistsAsync(Users.Where(user => user.Id == teacher.UserId && user.IsActive &&
+                SchoolMemberships.Any(member => member.UserId == user.Id && member.SchoolId == schoolId &&
+                    member.IsActive && member.Roles.Any(role => role.Role == SchoolRoleNames.Teacher))), async, cancellationToken))
+            throw new AuditPolicyException("Teacher account links require an active Teacher membership in the same school.");
+        if (entry.Entity is TeacherAssignment assignment && entry.State == EntityState.Added &&
+            (!await ExistsAsync(Teachers.Where(teacher => teacher.Id == assignment.TeacherId && teacher.SchoolId == schoolId && teacher.IsActive), async, cancellationToken) ||
+             !await ExistsAsync(Classrooms.Where(classroom => classroom.Id == assignment.ClassroomId && classroom.SchoolId == schoolId &&
+                SchoolYears.Any(year => year.Id == classroom.SchoolYearId && year.SchoolId == schoolId)), async, cancellationToken)))
+            throw new AuditPolicyException("Assignments require an active teacher and a non-deleted class/year in the same school.");
     }
 
     private void RollbackAudit(AuditBatch batch)

@@ -82,6 +82,176 @@ public class SchoolManagementTests
     }
 
     [Fact]
+    public async Task ActiveTeacherCanViewSchoolYearAndClassLists()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        using var client = CreateClient(factory);
+        var (email, _, _) = await CreateMemberAsync(factory, SchoolRoleNames.Teacher);
+        await SignInAsync(client, email);
+
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/school-years")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/classes")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task ClassroomRejectsMissingNames(string? name)
+    {
+        using var factory = new CustomWebApplicationFactory();
+        using var client = CreateClient(factory);
+        var (email, _, _) = await CreateMemberAsync(factory, SchoolRoleNames.SchoolAdmin);
+        await SignInAsync(client, email);
+        var year = await CreateYearAsync(client);
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostWithCsrfAsync(client, "/api/classes",
+            new { name, schoolYearId = year.id })).StatusCode);
+        Assert.Empty((await client.GetFromJsonAsync<ClassroomResponse[]>("/api/classes"))!);
+    }
+
+    [Fact]
+    public async Task ClassroomValidatesNamesYearsAndRejectsOwnershipAndAuditOverposting()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        using var client = CreateClient(factory);
+        var (email, _, _) = await CreateMemberAsync(factory, SchoolRoleNames.SchoolAdmin);
+        await SignInAsync(client, email);
+        var year = await CreateYearAsync(client);
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostWithCsrfAsync(client, "/api/classes",
+            new { name = new string('x', 101), schoolYearId = year.id })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await PostWithCsrfAsync(client, "/api/classes",
+            new { name = "Missing year", schoolYearId = Guid.Empty })).StatusCode);
+        foreach (var field in new[] { "schoolId", "id", "createdByUserId", "lastAction", "lastActionAtUtc" })
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["name"] = "Overposting", ["schoolYearId"] = year.id, [field] = Guid.NewGuid()
+            };
+            Assert.Equal(HttpStatusCode.BadRequest, (await PostWithCsrfAsync(client, "/api/classes", payload)).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await SendWithCsrfAsync(client, HttpMethod.Delete, $"/api/school-years/{year.id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await PostWithCsrfAsync(client, "/api/classes",
+            new { name = "Deleted year", schoolYearId = year.id })).StatusCode);
+        Assert.Empty((await client.GetFromJsonAsync<ClassroomResponse[]>("/api/classes"))!);
+        var next = await PostWithCsrfAsync(client, "/api/school-years",
+            new { name = "New year", startDate = "2027-09-01", endDate = "2028-06-30" });
+        var nextYear = (await next.Content.ReadFromJsonAsync<SchoolYearResponse>())!;
+        Assert.Equal(HttpStatusCode.Created, (await PostWithCsrfAsync(client, "/api/classes",
+            new { name = new string('x', 100), schoolYearId = nextYear.id })).StatusCode);
+    }
+
+    [Fact]
+    public async Task ClassroomCreationRequiresAuthenticationAdminAndCsrf()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        using var admin = CreateClient(factory);
+        var (email, _, _) = await CreateMemberAsync(factory, SchoolRoleNames.SchoolAdmin);
+        await SignInAsync(admin, email);
+        var year = await CreateYearAsync(admin);
+        var body = new { name = "Protected class", schoolYearId = year.id };
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/classes", body)).StatusCode);
+        foreach (var role in new[] { SchoolRoleNames.Teacher, SchoolRoleNames.Parent })
+        {
+            var (memberEmail, _, _) = await CreateMemberAsync(factory, role);
+            using var member = CreateClient(factory);
+            await SignInAsync(member, memberEmail);
+            Assert.Equal(HttpStatusCode.Forbidden, (await PostWithCsrfAsync(member, "/api/classes", body)).StatusCode);
+        }
+        using var anonymous = CreateClient(factory);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/classes")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await PostWithCsrfAsync(anonymous, "/api/classes", body)).StatusCode);
+    }
+
+    [Fact]
+    public async Task ClassroomNamesIgnoreCaseWithinYearAndRetainAuditedHistory()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        using var client = CreateClient(factory);
+        var (email, schoolId, _) = await CreateMemberAsync(factory, SchoolRoleNames.SchoolAdmin);
+        await SignInAsync(client, email);
+        var year = await CreateYearAsync(client);
+        var created = await PostWithCsrfAsync(client, "/api/classes", new { name = "  LỚP MẦM  ", schoolYearId = year.id });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var classroom = (await created.Content.ReadFromJsonAsync<ClassroomResponse>())!;
+        Assert.Equal("LỚP MẦM", classroom.name);
+        Assert.Equal(year.id, classroom.schoolYearId);
+        Assert.Equal(schoolId, classroom.schoolId);
+        Assert.Equal($"/api/classes/{classroom.id}", created.Headers.Location!.OriginalString);
+        Assert.Equal(HttpStatusCode.Conflict, (await PostWithCsrfAsync(client, "/api/classes",
+            new { name = " lớp mầm ", schoolYearId = year.id })).StatusCode);
+        var next = await PostWithCsrfAsync(client, "/api/school-years",
+            new { name = "Next year", startDate = "2027-09-01", endDate = "2028-06-30" });
+        var nextYear = (await next.Content.ReadFromJsonAsync<SchoolYearResponse>())!;
+        Assert.Equal(HttpStatusCode.Created, (await PostWithCsrfAsync(client, "/api/classes",
+            new { name = "lớp mầm", schoolYearId = nextYear.id })).StatusCode);
+        using (var scope = factory.Services.CreateScope())
+        {
+            using var operation = scope.ServiceProvider.GetRequiredService<PreschoolConnect.Application.Auth.AuditActorContext>()
+                .BeginSystemOperation("classroom-test-retention");
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var retained = await db.Classrooms.SingleAsync(item => item.Id == classroom.id);
+            var actor = await db.Users.SingleAsync(item => item.Email == email);
+            Assert.Equal(actor.Id, retained.CreatedByUserId);
+            Assert.Equal(actor.Id, retained.LastActionByUserId);
+            Assert.Equal("I", retained.LastAction);
+            var log = await db.AuditLogs.SingleAsync(item => item.EntityId == classroom.id);
+            Assert.Equal(actor.Id, log.ActorUserId);
+            Assert.Equal(schoolId, log.SchoolId);
+            Assert.Equal(nameof(Classroom), log.EntityType);
+            retained.SchoolYearId = nextYear.id;
+            await Assert.ThrowsAsync<AuditPolicyException>(() => db.SaveChangesAsync());
+            retained.SchoolYearId = year.id;
+            db.Classrooms.Remove(retained);
+            await db.SaveChangesAsync();
+            Assert.Equal("D", (await db.Classrooms.IgnoreQueryFilters().SingleAsync(item => item.Id == classroom.id)).LastAction);
+            Assert.Equal(year.id, retained.SchoolYearId);
+            Assert.Equal(new[] { "I", "D" }, await db.AuditLogs.Where(item => item.EntityId == classroom.id)
+                .OrderBy(item => item.OccurredAtUtc).Select(item => item.Action).ToArrayAsync());
+        }
+        Assert.DoesNotContain((await client.GetFromJsonAsync<ClassroomResponse[]>("/api/classes"))!, item => item.id == classroom.id);
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await SendWithCsrfAsync(client, HttpMethod.Delete, $"/api/school-years/{year.id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await PostWithCsrfAsync(client, "/api/classes",
+            new { name = "lớp mầm", schoolYearId = year.id })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await SendWithCsrfAsync(client, HttpMethod.Delete, $"/api/school-years/{year.id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task TeacherWithoutAssignmentCannotListClassesOrSelectAnotherSchool()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        using var client = CreateClient(factory);
+        var (email, schoolId, otherYearId) = await CreateMemberAsync(factory, SchoolRoleNames.Teacher, createOtherSchoolYear: true);
+        Guid otherSchoolId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            using var operation = scope.ServiceProvider.GetRequiredService<PreschoolConnect.Application.Auth.AuditActorContext>()
+                .BeginSystemOperation("classroom-test-isolation");
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var year = new SchoolYear { Id = Guid.NewGuid(), SchoolId = schoolId, Name = "Own year",
+                StartDate = new DateOnly(2026, 9, 1), EndDate = new DateOnly(2027, 6, 30) };
+            db.SchoolYears.Add(year);
+            db.Classrooms.Add(new Classroom { Id = Guid.NewGuid(), SchoolId = schoolId, SchoolYearId = year.Id, Name = "Own class" });
+            var other = await db.SchoolYears.SingleAsync(item => item.Id == otherYearId);
+            otherSchoolId = other.SchoolId;
+            db.Classrooms.Add(new Classroom { Id = Guid.NewGuid(), SchoolId = other.SchoolId, SchoolYearId = other.Id, Name = "Private other class" });
+            await db.SaveChangesAsync();
+            var deleted = new Classroom { Id = Guid.NewGuid(), SchoolId = schoolId, SchoolYearId = year.Id, Name = "Deleted class" };
+            db.Classrooms.Add(deleted);
+            await db.SaveChangesAsync();
+            db.Classrooms.Remove(deleted);
+            await db.SaveChangesAsync();
+        }
+        await SignInAsync(client, email);
+        Assert.Empty((await client.GetFromJsonAsync<ClassroomResponse[]>("/api/classes"))!);
+        using var forged = new HttpRequestMessage(HttpMethod.Get, "/api/classes");
+        forged.Headers.Add("X-School-Id", otherSchoolId.ToString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(forged)).StatusCode);
+    }
+
+    [Fact]
     public async Task SchoolYearRejectsInvalidDateRange()
     {
         using var factory = new CustomWebApplicationFactory();
@@ -359,5 +529,7 @@ public class SchoolManagementTests
     {
         public Guid id { get; set; }
         public Guid schoolId { get; set; }
+        public Guid schoolYearId { get; set; }
+        public string name { get; set; } = string.Empty;
     }
 }

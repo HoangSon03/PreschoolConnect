@@ -25,6 +25,8 @@ public partial class ApplicationDbContext : IdentityDbContext<ApplicationUser, A
     public DbSet<Student> Students => Set<Student>();
     public DbSet<StudentAccount> StudentAccounts => Set<StudentAccount>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<Teacher> Teachers => Set<Teacher>();
+    public DbSet<TeacherAssignment> TeacherAssignments => Set<TeacherAssignment>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -79,6 +81,7 @@ public partial class ApplicationDbContext : IdentityDbContext<ApplicationUser, A
         {
             ConfigureAudit(entity, "Classrooms");
             entity.HasKey(x => x.Id);
+            entity.HasAlternateKey(x => new { x.SchoolId, x.Id });
             entity.HasIndex(x => new { x.SchoolYearId, x.Name }).IsUnique().HasFilter("\"LastAction\" <> 'D'");
             entity.Property(x => x.Name).HasMaxLength(100).IsRequired();
             entity.HasOne<School>().WithMany().HasForeignKey(x => x.SchoolId).OnDelete(DeleteBehavior.Restrict);
@@ -87,6 +90,37 @@ public partial class ApplicationDbContext : IdentityDbContext<ApplicationUser, A
                 .HasForeignKey(x => new { x.SchoolId, x.SchoolYearId })
                 .HasPrincipalKey(x => new { x.SchoolId, x.Id })
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<Teacher>(entity =>
+        {
+            ConfigureAudit(entity, "Teachers");
+            entity.HasKey(x => x.Id);
+            entity.HasAlternateKey(x => new { x.SchoolId, x.Id });
+            entity.HasIndex(x => new { x.SchoolId, x.UserId }).IsUnique().HasFilter("\"UserId\" IS NOT NULL");
+            entity.Property(x => x.Name).HasMaxLength(200);
+            entity.Property(x => x.Gender).HasMaxLength(10);
+            entity.Property(x => x.Phone).HasMaxLength(10);
+            entity.Property(x => x.Email).HasMaxLength(256);
+            foreach (var name in new[] { "Address", "Degree", "University", "Certificate", "Contract", "Work" })
+                entity.Property<string>(name).HasMaxLength(500);
+            entity.HasOne<School>().WithMany().HasForeignKey(x => x.SchoolId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table => table.HasCheckConstraint("CK_Teachers_Experience", "\"Experience\" >= 0 AND \"Graduated\" >= 1950"));
+        });
+        builder.Entity<TeacherAssignment>(entity =>
+        {
+            ConfigureAudit(entity, "TeacherAssignments");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Role).HasMaxLength(100);
+            entity.HasIndex(x => new { x.SchoolId, x.TeacherId, x.ClassroomId }).IsUnique()
+                .HasFilter("\"EndedAtUtc\" IS NULL AND \"LastAction\" <> 'D'");
+            entity.HasOne<Teacher>().WithMany().HasForeignKey(x => new { x.SchoolId, x.TeacherId })
+                .HasPrincipalKey(x => new { x.SchoolId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Classroom>().WithMany().HasForeignKey(x => new { x.SchoolId, x.ClassroomId })
+                .HasPrincipalKey(x => new { x.SchoolId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table => table.HasCheckConstraint("CK_TeacherAssignments_Time",
+                "\"EndedAtUtc\" IS NULL OR \"EndedAtUtc\" >= \"StartedAtUtc\""));
         });
 
         builder.Entity<Student>(entity =>

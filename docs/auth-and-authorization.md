@@ -34,7 +34,45 @@ school's year list; only SchoolAdmin may mutate years or create
 classes. Parent/student accounts are mapped separately and do not receive a
 school-wide list. The current GET endpoints implement this membership-based
 read rule; teacher assignment filtering is required for future student data,
-not the year directory.
+not the year directory. The approved Teacher implementation now narrows Teacher
+class directory results and year class counts to currently assigned classes.
+SchoolAdmin retains school-wide directory access.
+
+## Teacher personnel and assignment APIs
+
+All `/api/teachers` routes require JWT and an active server-resolved membership.
+`X-School-Id` may select only a verified membership. Admin alone creates/updates
+profiles, lists eligible account links and changes assignments. Teacher may
+list/read only their linked profile; other-teacher/cross-school IDs return 404,
+unauthorized roles return 403, missing authentication returns 401.
+
+| API | Contract |
+|---|---|
+| `GET /api/teachers` | Authorized profile DTOs; React performs search, status/class filtering and pagination over this authorized result set. |
+| `GET /api/teachers/{id}` | Same-scope profile plus authorized assignment details. |
+| `POST /api/teachers` | Create the UI's personnel profile; 201 with DTO/Location. |
+| `PUT /api/teachers/{id}` | Update personnel fields/status and first explicit account link; 200. |
+| `GET /api/teachers/accounts` | Admin-only active same-school Teacher account choices. |
+| `POST /api/teachers/{id}/assignments` | `{ classroomId, role }`; starts now, validates same-school live teacher/class/year; 200 with updated DTO. |
+| `DELETE /api/teachers/{id}/assignments/{assignmentId}` | End now, never physically remove; 200 with updated DTO. |
+
+Profile writes accept `{ name, birthday, gender, phone, email, address, degree,
+graduated, university, experience, certificate, startDate, contract, work,
+isActive, userId }`. Dates use ISO `yyyy-MM-dd`; linked `userId` is a validated
+target, never the caller's authority. Ownership/audit/unknown JSON fields are
+rejected. DTOs contain `{ id, code, profile, assignments, lastActionAtUtc }`;
+assignment DTOs contain IDs/names for class/year, role and server UTC start/end.
+No credentials are returned. Mutations retain CSRF protection; invalid input is
+400, missing scoped rows 404, duplicates/concurrency/link conflicts 409.
+Account/profile/assignment history is never inferred from browser ownership IDs.
+
+`ApplicationUser.SchoolId` and `ApplicationUser.StudentId` remain in the current
+Identity model and initial migration but have no runtime references beyond
+their declarations. Current tenant and parent mapping use
+`SchoolMembership`/`StudentAccount` instead. Do not use the legacy fields for
+new authorization. Any removal requires an authorized inventory of existing
+database values and a reviewed forward migration; no column is dropped by this
+change.
 
 ## Tenant context
 

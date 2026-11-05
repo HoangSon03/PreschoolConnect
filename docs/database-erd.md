@@ -12,6 +12,17 @@ The four older CreatedUtc columns remain immutable compatibility fields.
 Identity, permission joins and append-only AuditLogs do not use this filter.
 This does not imply the future conceptual modules below are implemented.
 
+**Implemented Teacher extension:** `Teachers` adds a school-owned audited
+personnel profile with nullable restrictive Identity UserId, UI personal/contact,
+qualification/work fields and IsActive. A unique (SchoolId, UserId) index applies
+to linked users, including retained rows. `TeacherAssignments` adds audited
+SchoolId/TeacherId/ClassroomId/Role/StartedAtUtc/EndedAtUtc rows; composite
+same-school foreign keys target Teachers and Classrooms. Active teacher/class
+pairs are unique; ending assignments retains rows. Both tables reuse immutable
+creation metadata, append-only AuditLogs, soft-delete filters and PostgreSQL
+no-physical-delete guards. This is the implemented counterpart of conceptual
+CLASS_TEACHER below, not timetable or document storage.
+
 ```mermaid
 erDiagram
   APP_USER {
@@ -39,7 +50,6 @@ erDiagram
   STUDENT {
     uuid StudentId PK
     uuid SchoolId FK
-    string StudentCode
     string FullName
     date DateOfBirth
     string ParentContactName
@@ -78,7 +88,8 @@ erDiagram
     uuid ClassId FK
     date StartDate
     date EndDate
-    string Status
+    string AgeGroup
+    string StudyMode
   }
   ATTENDANCE_RECORD {
     uuid AttendanceId PK
@@ -178,9 +189,15 @@ erDiagram
 
 - Identity user names/emails follow Identity's configured normalization and uniqueness rules.
 - `SchoolMembership`: unique `(SchoolId, UserId)` and a composite key usable by child FKs. Role assignments are unique `(MembershipId, Role)`. Roles: `SchoolAdmin`, `Teacher`, `Parent`; do not rely on global roles for school authorization.
-- `Student`: unique `(SchoolId, StudentId)` and `(SchoolId, StudentCode)`.
+- `Student`: implemented composite unique `(SchoolId, Id)`; its immutable `Id`
+  is the displayed student code, with no separate StudentCode column.
 - `StudentAccount`: unique `StudentId` and unique `UserId` (one user maps to at most one student globally); composite FKs `(SchoolId, StudentId)` and `(SchoolId, UserId)` point to the same-school student and membership. Require the linked membership to have `Parent` role in the application and test it.
-- `SchoolYear`: `EndDate > StartDate`; school-local date policy must be settled. `Classroom`: composite FK `(SchoolId, SchoolYearId)`; recommended unique `(SchoolYearId, Name)`.
+- `SchoolYear`: `EndDate > StartDate`; school-local date policy must be settled.
+  `Classroom`: composite FK `(SchoolId, SchoolYearId)`. Approved 2026-11-04:
+  immutable original SchoolYearId and active-only, trimmed, case-insensitive
+  name uniqueness per school/year, including Vietnamese letters. Migration
+  `20261104080000_ClassroomIntegrity` adds the `pg_c_utf8` expression index and
+  year-immutability trigger without rewriting business records.
 - Implemented school-year integrity (approved 2026-11-03): a per-school unique
   expression index on trimmed, lowercased names uses PostgreSQL 17's built-in
   `pg_c_utf8` collation for Unicode case folding even in a `C`-locale database.
@@ -210,7 +227,8 @@ erDiagram
   See [PostgreSQL 17 collations](https://www.postgresql.org/docs/17/collation.html)
   and [advisory locks](https://www.postgresql.org/docs/17/explicit-locking.html#ADVISORY-LOCKS).
 - `ClassTeacher`: composite FKs to the same-school class and membership; unique `(SchoolId, ClassId, UserId)`.
-- `StudentEnrollment`: composite FKs to same-school student and class; `EndDate` is exclusive and must be after `StartDate`. Transfers close the prior enrollment and create the next inside one transaction. Enforce non-overlapping student date ranges in PostgreSQL (a GiST exclusion constraint with `btree_gist` is a candidate) and validate the same invariant in application use cases. Confirm required extension/constraint approach before schema work.
+- `StudentEnrollment`: proposed same-school enrollment history; constraints and
+  lifecycle require a separate approved implementation.
 - `AttendanceRecord`: unique `(EnrollmentId, AttendanceDate)`; status restricted to the MVP attendance set; checkout cannot precede check-in; date must fall within the enrollment's effective interval.
 - `DailyReport`: unique `(EnrollmentId, ReportDate)`; `NapDurationMinutes >= 0`; parents can read published records only. Published corrections require explicit actor/time audit.
 - `Announcement`: one `TargetType` (`School`, `Class`, `Student`) and matching target rows only; state/timestamps must be consistent. `CopyOfAnnouncementId` references the original without mutating it.

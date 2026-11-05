@@ -9,7 +9,6 @@
 - No self-registration. Administrators provision and activate accounts. The first-login credential/setup handoff must be secure and verifiable; the delivery method is unresolved.
 - One dedicated student account maps to one student, and a student has at most one dedicated student account. Student parent/guardian contact fields remain on `Student`; there is no separate `Parents` entity.
 - Parent-facing APIs resolve the student from the authenticated account mapping. Never accept a client `StudentId` as proof of access.
-- Student codes should be unique within a school, not assumed globally unique.
 
 ## School years, classes, and teacher assignments
 
@@ -30,17 +29,48 @@
 - School-year phases in the UI are calculated from the date range, not a new
   persisted active/archive status or a default-year policy. Years are not
   automatically created.
-- **Approval required:** further class-name policies and teacher assignment
-  effective-date rules; these school-year changes do not approve them.
+- **Approved 2026-11-04:** classroom names are trimmed, required, at most
+  100 characters, and unique within a school year among non-deleted classes,
+  ignoring case (including Vietnamese letters). A deleted class does not reserve
+  its name. The original SchoolYear association is immutable.
+- Classroom delivery is limited to the existing real name/year create, list,
+  search/year filter and basic-information dialog. Preview age groups, rooms,
+  capacity, planned start dates, notes, rosters and teacher assignments are not
+  approved backend requirements for this delivery. Edit/delete APIs are not
+  included in that delivery. The subsequent Teacher delivery below adds assignments.
+
+### Approved Teacher delivery
+
+- SchoolAdmin manages teacher personnel profiles only within the resolved school.
+  Teacher can read only their explicitly linked profile and currently assigned,
+  non-deleted classes; Parent cannot access personnel APIs. Ending an assignment,
+  pausing a teacher profile, revoking membership or disabling the account removes
+  applicable access on the next request.
+- Profiles contain the existing UI's personal/contact, qualification and work
+  fields. Required fields, bounded text, ten-digit phone, email, non-future
+  birthday, graduation year and nonnegative integer experience are validated.
+  Employment status is independent of Identity account activation.
+- Creating a profile never creates credentials or matches accounts by email.
+  Admin may explicitly link an active user with Teacher membership in the same
+  school. A linked identity cannot be reassigned; one profile/user/school is
+  retained, including tombstones. Codes use `GV-` plus the profile UUID.
+- A teacher can have several classes and a class several teachers. Assignment
+  roles are the existing UI's primary/co-teacher labels, not additional JWT roles.
+  Assignment starts immediately at server UTC; ending it stamps EndedAtUtc,
+  retains history and allows later re-assignment as a new row. No future scheduling.
+  Duplicate active teacher/class pairs are rejected, including concurrent writes.
+- Teacher profile and assignment rows use the shared audit/soft-delete pipeline;
+  no physical-delete or profile-delete API is exposed. Admin can read retained
+  assignment history; Teacher responses omit ended or inaccessible assignments.
+- This delivery excludes timetable management and binary document storage by
+  explicit scope confirmation. Those UI panels show unsupported states, not
+  mock data. Printed lists/profiles use the real authorized data.
 
 ## Enrollment history
 
 - A student can have multiple enrollment rows over time. Do not overwrite or delete prior rows when promoting, transferring, or leaving a class.
 - Attendance and daily reports reference the enrollment row, not only the student or current class.
 - Transfers are one transaction: close the old enrollment, create the new enrollment, record the actor/time, and preserve the previous row.
-- **Recommended:** use half-open date intervals `[StartDate, EndDate)` so a same-day transfer has an unambiguous boundary. A null end date means no recorded end. Reject overlapping enrollment intervals for the same student, including concurrent transfer attempts.
-- **Approval required:** exact status set, whether all historical periods must be non-overlapping regardless of status, same-day transfer semantics, whether a student may be temporarily unenrolled, and retroactive correction authority.
-
 ## Attendance
 
 - MVP statuses: `Present`, `AbsentExcused`, `AbsentUnexcused`.

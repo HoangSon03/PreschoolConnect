@@ -1,5 +1,40 @@
 # Audit migration notes
 
+## Teacher profile extension
+
+`20261104095259_TeacherProfiles` follows ClassroomIntegrity. It adds Teachers
+and TeacherAssignments, the (SchoolId, Id) classroom alternate key for
+same-school assignment FKs, linked-user and active-assignment uniqueness, audit
+checks/FKs and guards. Existing business tables/data are not recreated.
+PostgreSQL reuses `guard_business_audit()` and adds teacher membership,
+immutable-linked-identity and append-only-assignment-history checks.
+The migration is forward-only. It does not create teachers, accounts,
+credentials or assignments automatically. Apply only as an explicit operator
+action on a verified target; normal startup never applies it.
+
+## Classroom integrity extension - 2026-11-04
+
+`20261104080000_ClassroomIntegrity` follows StandardizedAuditing. It adds
+`UX_Classrooms_NormalizedName`, an active-only unique expression index over
+SchoolId, SchoolYearId and `lower(btrim(Name) COLLATE "pg_c_utf8")`, plus a trigger
+that rejects changing a class's original SchoolYearId. The existing composite
+foreign key, exact-name index, audit guards and active-year guards remain.
+These are migration-defined SQL, so no EF model/snapshot changes are required.
+
+The migration checks for conflicting active names first and stops without
+rewriting or deleting records. An authorized operator must resolve legacy
+conflicts deliberately before retrying. It never moves classes or fabricates
+history. Run the operator checklist below; ordinary startup does not migrate.
+The application database has not been inspected or migrated for this delivery.
+
+New tests verify generated SQL without a connection, and exercise concurrent
+Vietnamese-case duplicates, active-only name reuse, immutable year references
+and refusal of legacy conflicts on the existing disposable PostgreSQL harness.
+On 2026-11-04, the focused Classroom/SchoolYear/audit suite passed all 35 tests
+on a newly initialized loopback-only PostgreSQL 17.11 cluster in session storage.
+That cluster was shut down and removed afterwards; no application database was
+used. This does not establish migration state in any deployment.
+
 ## Schema impact
 
 `20261103032915_StandardizedAuditing` follows the existing

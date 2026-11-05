@@ -13,6 +13,7 @@ using PreschoolConnect.Application.Models;
 using PreschoolConnect.Infrastructure.Persistence;
 using PreschoolConnect.Api.Auth;
 using PreschoolConnect.Infrastructure.Identity;
+using PreschoolConnect.Application.Teachers;
 
 var migrationCommand = args.Contains("--migrate", StringComparer.Ordinal);
 var resetAdminPasswordCommand = args.Contains("--reset-local-admin-password", StringComparer.Ordinal);
@@ -25,6 +26,7 @@ var builder = WebApplication.CreateBuilder(builderArgs);
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<AuthenticationExceptionHandler>();
+builder.Services.AddExceptionHandler<TeacherExceptionHandler>();
 builder.Services.AddExceptionHandler<AuditPolicyExceptionHandler>();
 builder.Services.AddSingleton<DatabaseStartupOperations>();
 
@@ -67,6 +69,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 builder.Services.AddScoped<AdminProvisioner>();
+builder.Services.AddScoped<ITeacherService, TeacherService>();
 builder.Services.AddAuthentication();
 if (!migrationCommand && !resetAdminPasswordCommand && !provisionAdminCommand)
     builder.Services.AddJwtAuthentication(builder.Configuration);
@@ -174,6 +177,23 @@ async Task<(SchoolContext? Context, IResult? Error)> ResolveRequestTenantAsync(
     return (resolution.Context, null);
 }
 
+IQueryable<Classroom> VisibleClassrooms(ApplicationDbContext db, SchoolContext context, HttpContext http, bool includeDeleted = false)
+{
+    var admin = context.Roles.Contains(SchoolRoleNames.SchoolAdmin);
+    var query = (includeDeleted ? db.Classrooms.IgnoreQueryFilters() : db.Classrooms)
+        .AsNoTracking().Where(classroom => classroom.SchoolId == context.SchoolId);
+    if (!admin && context.Roles.Contains(SchoolRoleNames.Teacher))
+    {
+        var userId = Guid.Parse(http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+        query = query.Where(classroom => classroom.LastAction != "D" && db.TeacherAssignments.Any(assignment =>
+            assignment.SchoolId == context.SchoolId && assignment.ClassroomId == classroom.Id &&
+            assignment.EndedAtUtc == null && assignment.LastAction != "D" &&
+            db.Teachers.Any(teacher => teacher.Id == assignment.TeacherId && teacher.LastAction != "D" &&
+                teacher.SchoolId == assignment.SchoolId && teacher.UserId == userId && teacher.IsActive)));
+    }
+    return query;
+}
+
 app.UseExceptionHandler(new ExceptionHandlerOptions
 {
     StatusCodeSelector = exception => exception is BadHttpRequestException badRequest
@@ -217,6 +237,7 @@ app.MapGet("/api/auth/csrf", (IAntiforgery antiforgery, HttpContext httpContext)
 });
 
 app.MapAuthenticationEndpoints();
+app.MapTeacherEndpoints();
 
 app.MapGet("/api/tenant/context", [Authorize] async (
     HttpContext httpContext,
@@ -276,8 +297,7 @@ app.MapGet("/api/school-years", [Authorize] async (
         return access.Error;
     }
 
-    var classCounts = await db.Classrooms.IgnoreQueryFilters().AsNoTracking()
-        .Where(classroom => classroom.SchoolId == access.Context!.SchoolId)
+    var classCounts = await VisibleClassrooms(db, access.Context!, httpContext, includeDeleted: true)
         .GroupBy(classroom => classroom.SchoolYearId)
         .Select(group => new { Id = group.Key, Count = group.Count() })
         .ToDictionaryAsync(item => item.Id, item => item.Count, cancellationToken);
@@ -489,7 +509,7 @@ app.MapGet("/api/classes", [Authorize] async (
         return access.Error;
     }
 
-    var classes = await db.Classrooms
+    var classes = await VisibleClassrooms(db, access.Context!, httpContext)
         .AsNoTracking()
         .Where(classroom => classroom.SchoolId == access.Context!.SchoolId)
         .OrderBy(classroom => classroom.Name)
@@ -536,12 +556,16 @@ app.MapPost("/api/classes", [Authorize] async (
         return Results.NotFound(new { message = "The school year was not found in the selected school." });
     }
 
-    var duplicateName = await db.Classrooms.AnyAsync(
-        classroom => classroom.SchoolYearId == request.SchoolYearId && classroom.Name == name,
-        cancellationToken);
+    var normalizedName = name.ToLowerInvariant();
+    var sameYearClasses = db.Classrooms.Where(classroom =>
+        classroom.SchoolId == schoolId && classroom.SchoolYearId == request.SchoolYearId);
+    var duplicateName = db.Database.IsNpgsql()
+        ? await sameYearClasses.AnyAsync(classroom =>
+            EF.Functions.Collate(classroom.Name.Trim(), "pg_c_utf8").ToLower() == normalizedName, cancellationToken)
+        : await sameYearClasses.AnyAsync(classroom => classroom.Name.Trim().ToLower() == normalizedName, cancellationToken);
     if (duplicateName)
     {
-        return Results.Conflict(new { message = "A class with this name already exists in the school year." });
+        return Results.Conflict(new { message = "A class with this name already exists in the school year (case-insensitive)." });
     }
 
     var classroom = new Classroom
@@ -612,6 +636,7 @@ static string? SchoolYearConstraintMessage(DbUpdateException exception) =>
         "CK_SchoolYears_NoOverlap" => "Khoảng ngày trùng với năm học khác.",
         "CK_SchoolYears_DatesInUse" => "Năm học đã có lớp; không được thay đổi ngày hoặc xóa.",
         "CK_Classrooms_ActiveSchoolYear" => "Năm học đã bị xóa; tải lại danh sách trước khi tạo lớp.",
+        "UX_Classrooms_NormalizedName" or "IX_Classrooms_SchoolYearId_Name" => "Tên lớp đã tồn tại trong năm học (không phân biệt hoa/thường).",
         "FK_Classrooms_SchoolYears_SchoolId_SchoolYearId" => "Không thể xóa năm học đã có lớp.",
         _ => null
     } : null;

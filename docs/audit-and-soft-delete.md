@@ -1,8 +1,8 @@
 # Audit and soft-delete policy
 
 Implemented for the existing business model on 2026-11-03. This policy supersedes
-physical deletion of unused school years. It does not introduce future enrollment,
-attendance, reporting, or announcement modules.
+physical deletion of unused school years. Teacher delivery extends
+this coverage; attendance, reporting and announcements remain separate modules.
 
 ## Coverage and deletion rules
 
@@ -10,14 +10,16 @@ attendance, reporting, or announcement modules.
 |---|---|---|
 | School | Yes | Reject while any business dependents exist, including tombstones. Usually deactivate instead. Audit events remain attached. |
 | SchoolYear | Yes | Reject when any classroom references it, including deleted classes. Referenced years cannot change dates. |
-| Classroom | Yes | Keep its year relation. No enrollment/attendance entities exist yet; their retention guards must be added with those modules. |
-| Student | Yes | Reject while a student-account mapping exists, including deleted mappings. |
+| Classroom | Yes | Keep its original year relation immutable. |
+| Student | Yes | Reject while a student-account mapping exists, including retained rows. |
 | SchoolMembership | Yes | Keep grants and Identity references. Deleted membership cannot authorize requests. |
 | StudentAccount | Yes | Preserve user/student identity and uniqueness permanently; no implicit remapping or reuse. |
+| Teacher | Yes | Retain personnel and linked Identity history; no profile-delete endpoint. Linked users cannot be reassigned. |
+| TeacherAssignment | Yes | End by setting EndedAtUtc with an audited U operation, never removal. Closed assignment identity/role/start/end are immutable; re-assignment creates a new row. |
 | SchoolMembershipRole | No soft-delete base | A composite-key authorization join, not a separately archived business object. Explicit grant/revoke events are logged; deletion of its membership does not delete grants. Authorization always starts from an active, non-deleted membership. |
 | ASP.NET Core Identity tables | No business filters | Preserve framework lifecycle and account deactivation. Business/audit user references use restrictive foreign keys. |
 | AuditLog | Append-only events | No update, deletion, or soft-delete filter. Separate from latest-row metadata. |
-| Proposed enrollment, attendance, reports, announcements, recipient snapshots | Not implemented | Define entity-specific lifecycle before adding them; never cascade archival into historical records or recipient snapshots. |
+| Proposed attendance, reports, announcements, recipient snapshots | Not implemented | Define entity-specific lifecycle before adding them; never cascade archival into historical records or recipient snapshots. |
 
 Restoration and purge are **not supported**. Normal updates and repeated deletions
 of D records are rejected. New identity/permission provisioning and any future
@@ -80,7 +82,7 @@ commits before submitting another save, as with the normal EF pattern.
 
 ## Queries and history
 
-The named EF `SoftDelete` filter excludes LastAction D on all six covered types.
+The named EF `SoftDelete` filter excludes LastAction D on covered business types.
 It is not tenant authorization. Normal APIs explicitly select the resolved school.
 Do not use cached `Find` results to decide whether a record is active.
 
@@ -106,13 +108,23 @@ authorization. Do not put parent-active filters on attendance, enrollment histor
 reporting facts, or announcement recipient snapshots. Required-navigation joins
 must be tested because a filtered parent can otherwise hide a historical child.
 
+Student history queries explicitly join school-scoped retained class/year names
+for Admin and the mapped Parent. Teacher queries include only current eligible
+enrollments and explicitly non-deleted assignments/teachers/classes/years; filter
+bypass never grants historical other-class access. AuditLogs contain allowlisted
+changed-field names only, never Student health/care or contact values. Measurement
+and care changes still stamp row metadata and emit an event without health content.
+
 ## PostgreSQL integrity and bypass paths
 
 - CHECK constraints restrict I/U/D and timestamp ordering.
 - Audit actor FKs are nullable and restrictive, never cascading or SET NULL.
 - School slugs, membership school/user pairs, and student-account user/student
   mappings stay unique across all records.
-- Classroom names are unique within a year among non-deleted classes.
+- Classroom names are unique within a year among non-deleted classes, ignoring
+  trimmed-name casing (including Vietnamese letters). The migration-defined
+  `UX_Classrooms_NormalizedName` index handles concurrent inserts; EF and a
+  PostgreSQL trigger reject changes to the original SchoolYear association.
 - Unicode-normalized school-year names and inclusive date overlaps apply only
   among non-deleted years.
 - Physical business DELETE, changes to creation/identity metadata, normal updates

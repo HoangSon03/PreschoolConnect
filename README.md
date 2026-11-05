@@ -107,6 +107,81 @@ passwords in command arguments, configuration files or chat. Identity's password
 policy applies, and all existing JWTs are rejected on their next request.
 Any existing temporary login lockout is not bypassed; wait for its expiry.
 
+## Frontend design preview
+
+With Vite running, open `/preview/dashboard`. The sidebar now links to classes,
+students, teachers, attendance, events, announcements, fees, reports and settings.
+Lists link to profiles/details and create/edit preview forms. Permissions are
+under Settings. These explicitly labelled synthetic-data previews follow the
+supplied Figma screenshots; they do not require a backend, request school data,
+upload attachments, send messages, or persist edits.
+
+The real workspace uses `/admin/dashboard`, `/admin/classes`,
+`/admin/classes/new`, `/admin/teachers` and `/admin/settings`, with JWT Bearer authentication and
+server-validated school access. Student/attendance statistics are not
+available yet; real pages do not substitute preview values. Login is at `/login`.
+Production hosting must provide SPA fallback to `index.html` for page routes.
+
+### School-year management
+
+Open `/preview/settings/years` to try the new list, search/date-phase filter,
+create/edit modal and delete confirmation without signing in. Sample changes
+exist only in memory on this screen; reloading restores the fixtures.
+
+The authenticated manager is at `/admin/settings/years` (also the default
+`/admin/settings` page). SchoolAdmin can create/edit/delete; other authorized
+school members can view. Years with classes can only be renamed, never have
+their dates changed or be deleted. Names are school-unique ignoring case and
+surrounding spaces among non-deleted years; their date ranges cannot overlap,
+even on a shared boundary day. Delete now retains an audited tombstone, not a
+physical removal; classes and historical references are never cascaded.
+
+The API now supports `GET/POST /api/school-years` and
+`PUT/DELETE /api/school-years/{id}`. GET includes `classCount`. Mutations require
+JWT Bearer authentication, CSRF and server-resolved school membership.
+The new PostgreSQL migration must succeed before real year/class writes are
+enabled; legacy duplicate names or overlapping ranges cause it to stop without
+modifying records. No automatic legacy cleanup is performed.
+
+The existing business entities now use centralized UTC auditing and soft delete.
+SchoolAdmin-only archive/audit API reads stay scoped to the resolved school.
+See [audit and deletion policy](./docs/audit-and-soft-delete.md) and
+[safe migration/backfill notes](./docs/audit-migration-notes.md) before restarting
+the API against an existing database. Restoration and automatic purge are not
+supported; Identity keeps its separate framework lifecycle.
+
+See [Figma mapping](./docs/design/figma-screen-mapping.md) and
+[implementation status](./docs/implementation-status.md).
+All supplied screen exports have preview implementations. This is not a complete
+production workflow: most business APIs are absent. The Help export and original
+icon/logo/font assets are still missing; visual parity is not claimed.
+
 ## Verification
 
-Run `dotnet test .\server\PreschoolConnect.Tests\PreschoolConnect.Tests.csproj`, then `npm test` and `npm run build` in `client`. PostgreSQL integrity tests require the existing isolated loopback disposable-server harness; never point them at the application database.
+From the project root:
+
+```powershell
+.\scripts\verify.ps1
+```
+
+`npm test` in `client` runs the dependency-free Node route/form regression tests
+(Node 22.18+ or 24 recommended). `npm run build` includes strict TypeScript
+checking and the Vite production build. The existing verification script runs backend tests and the frontend build
+using `$HOME\.dotnet\dotnet.exe`. To use the SDK selected by `global.json`
+from PATH instead, run `dotnet test .\server\PreschoolConnect.Tests\PreschoolConnect.Tests.csproj`
+at the root, then `npm test` and `npm run build` in `client`.
+Browser verification coverage and limitations are in the implementation
+status document.
+
+Optional PostgreSQL integrity tests use the existing Npgsql provider and create/
+drop randomly named synthetic test databases on an **isolated loopback server**.
+They skip unless `PRESCHOOL_TEST_POSTGRES` is set. Never point this at production
+or another project's database:
+
+```powershell
+$env:PRESCHOOL_TEST_POSTGRES = "Host=127.0.0.1;Port=55439;Database=postgres;Username=postgres"
+dotnet test .\server\PreschoolConnect.Tests\PreschoolConnect.Tests.csproj --no-restore --filter "FullyQualifiedName~SchoolYearPostgresTests"
+```
+
+The example assumes that a separate disposable server is already running at
+that port; the tests do not install or start PostgreSQL.

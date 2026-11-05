@@ -45,7 +45,9 @@ public class AuditPostgresTests
             Assert.Equal(year.CreatedAtUtc, year.LastActionAtUtc);
             Assert.NotEqual(SchoolContextFailure.SchemaNotReady, (await new SchoolContextResolver(db).ResolveAsync(Guid.NewGuid(), schoolId, default)).Failure);
             Assert.Empty(await db.AuditLogs.ToListAsync());
-            await Assert.ThrowsAsync<PostgresException>(() => db.GetService<IMigrator>().MigrateAsync("20261103030000_SchoolYearIntegrity"));
+            var downgrade = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                db.GetService<IMigrator>().MigrateAsync("20261103030000_SchoolYearIntegrity"));
+            Assert.Contains("forward-only", downgrade.Message);
             Assert.Equal(1, await db.SchoolYears.CountAsync());
         });
     }

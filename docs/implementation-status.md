@@ -2,11 +2,34 @@
 
 ## Commit-snapshot verification
 
-The isolated Auth commit snapshot passed 71 backend tests with zero failures
-or skips, including disposable loopback PostgreSQL and model/snapshot checks.
-Its 8 frontend session tests and TypeScript/Vite production build passed.
-This verification did not access the ordinary application database or run
-authenticated browser end-to-end tests.
+The isolated Teacher commit snapshot passed 95 backend tests with zero failures
+or skips, including disposable loopback PostgreSQL, forward-only migration
+guards and model/snapshot consistency. Its 19 frontend tests and TypeScript/Vite
+production build passed. Student implementation is not part of this snapshot.
+No ordinary application database or authenticated browser end-to-end test was used.
+
+## Teacher profiles and assignments
+
+- Implemented the confirmed personnel list/search/class-status filter,
+  pagination, real counts, print, create/edit and profile navigation using the
+  existing screen layout and shared design components.
+- Added school-scoped Teacher profiles and immediate many-to-many class
+  assignments with retained end history. Optional account linking validates
+  active same-school Teacher membership; profiles never create credentials or
+  infer Identity from email.
+- Personnel APIs enforce JWT, current membership and CSRF. Admin manages;
+  Teacher reads only their own linked profile and currently assigned classes;
+  Parent is denied. The shared class directory and year class counts now
+  respect Teacher assignment scope.
+- New forward migration `20261104095259_TeacherProfiles` includes composite FKs,
+  uniqueness and audit/history guards. After explicit approval and confirmation
+  of the disposable local target, it was applied using the operator command
+  after creating and checking a private backup archive; no seed was run.
+- Timetables and binary document storage were explicitly excluded from this
+  delivery; real pages show clear unsupported states, not mock data.
+- Focused Teacher/JWT/Classroom/audit/tenant verification passed 77 backend
+  tests with zero failures/skips on a separate disposable PostgreSQL cluster.
+  The 19 frontend tests and TypeScript/Vite production build also passed.
 
 ## JWT authentication update
 
@@ -32,10 +55,10 @@ authenticated browser end-to-end tests.
   migrated or seeded. Production account handoff and deployment key management
   remain operator responsibilities.
 
-## Historical baseline before the JWT update
+## Historical baseline before the JWT and Teacher updates
 
-The following records describe the earlier baseline, not the current
-authentication transport or provisioning behavior.
+The following records describe the earlier baseline, not current
+authentication, provisioning or Teacher functionality.
 
 ### Completed and verified
 
