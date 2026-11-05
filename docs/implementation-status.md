@@ -1,5 +1,40 @@
 # Implementation Status
 
+## Student profiles and enrollment history
+
+- Implemented the existing Student list, record-ID/name/contact search,
+  class/status filters, new-this-month tab, pagination, real counts, print,
+  create/edit, detail and profile navigation without fixture data or redesign.
+- Extended the existing Student model with guardian/contact and optional
+  health/care fields. The displayed student code is exactly the database record
+  UUID. Profiles do not provision accounts or infer account links from email.
+- Added audited StudentInClass enrollment periods with same-school composite
+  student/class FKs and the explicitly approved bundled btree_gist exclusion
+  constraint. Initial admission may be past; subsequent admission, transfer
+  and withdrawal take effect today in Asia/Ho_Chi_Minh. Periods naturally expire
+  at the class year's end; transfers close the previous row and create the next
+  transactionally. Ended history is immutable and retained parents cannot be deleted.
+- JWT/current membership/CSRF are enforced server-side. Admin manages;
+  Teacher reads only current assigned-class students and eligible current
+  enrollments, while Parent reads only their server-mapped student/history.
+  Parent UI initialization no longer requests staff-only class directories.
+- Attendance, tuition and document storage are explicitly outside this delivery;
+  their panels show unsupported states, not sample records or upload actions.
+- Focused Student/Teacher/JWT/Classroom/audit/tenant verification passed
+  **99 backend tests, zero failures/skips**, including actual isolated PostgreSQL
+  queries, concurrent enrollments/transfers, audit rollback and raw SQL guards.
+  **22 frontend tests** and TypeScript/Vite production build passed.
+  The independent Student publication snapshot subsequently passed the full
+  **117 backend tests**, 22 frontend tests and production build with no skips.
+  Browser smoke checks used synthetic intercepted API fixtures for list/search,
+  create/save payload, edit prefill, unsupported tabs and failure/retry;
+  this is not authenticated browser end-to-end verification against the local DB.
+- After separate explicit approval and confirmation of the disposable local
+  target, migration `20261104102931_StudentProfilesAndEnrollment` was applied
+  using the operator command after creating/checking a private backup archive.
+  No seed, account creation or reset was run. The local API was resumed;
+  API/readiness, Vite proxy and CSRF checks returned 200.
+
 ## Commit-snapshot verification
 
 The isolated Teacher commit snapshot passed 95 backend tests with zero failures

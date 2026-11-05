@@ -16,6 +16,20 @@
 | React Hook Form | [Docs](https://react-hook-form.com/get-started), [source](https://github.com/react-hook-form/react-hook-form); v7.91.0 stable source; v8 beta observed. | [MIT LICENSE](https://raw.githubusercontent.com/react-hook-form/react-hook-form/master/LICENSE). | Client forms. | No | Recommended stable v7 for initial work; review resolver package separately if added. |
 | Zod | [Docs](https://zod.dev/), [source](https://github.com/colinhacks/zod); v4.6.7 stable manifest. | [MIT LICENSE](https://raw.githubusercontent.com/colinhacks/zod/main/LICENSE). | Client schema validation and inferred TypeScript types. | No | Recommended where schemas reduce duplication; server validation remains authoritative. |
 
+## Adopted PostgreSQL bundled extension - Student delivery
+
+Approved `btree_gist`, bundled with the existing PostgreSQL 17.11 distribution,
+supports UUID equality alongside date-range overlap in enrollment exclusion
+constraints. No separate application package or server installation was added.
+The [official PostgreSQL 17 module documentation](https://www.postgresql.org/docs/17/btree-gist.html)
+documents UUID support and trusted installation with database CREATE privilege.
+It is maintained with PostgreSQL under the
+[PostgreSQL License](https://www.postgresql.org/about/licence/).
+The [supported-version policy](https://www.postgresql.org/support/versioning/)
+and [official advisory table](https://www.postgresql.org/support/security/) were
+checked on 2026-11-04; the latest listed PostgreSQL 17 fixes are included in 17.11.
+The extension was exercised on the isolated 17.11 integration-test cluster.
+
 ## Candidates awaiting explicit adoption
 
 | Component | Source/version evidence | License | Proposed use | Installed / copied | Decision / caveat |

@@ -23,6 +23,7 @@ public partial class ApplicationDbContext : IdentityDbContext<ApplicationUser, A
     public DbSet<SchoolYear> SchoolYears => Set<SchoolYear>();
     public DbSet<Classroom> Classrooms => Set<Classroom>();
     public DbSet<Student> Students => Set<Student>();
+    public DbSet<StudentInClass> StudentInClasses => Set<StudentInClass>();
     public DbSet<StudentAccount> StudentAccounts => Set<StudentAccount>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Teacher> Teachers => Set<Teacher>();
@@ -127,10 +128,38 @@ public partial class ApplicationDbContext : IdentityDbContext<ApplicationUser, A
         {
             ConfigureAudit(entity, "Students");
             entity.HasKey(x => x.Id);
+            entity.HasAlternateKey(x => new { x.SchoolId, x.Id });
             entity.HasIndex(x => new { x.SchoolId, x.LastName, x.FirstName }).IsUnique(false);
             entity.Property(x => x.FirstName).HasMaxLength(100).IsRequired();
             entity.Property(x => x.LastName).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Gender).HasMaxLength(10);
+            entity.Property(x => x.Address).HasMaxLength(500);
+            entity.Property(x => x.Guardian).HasMaxLength(200);
+            entity.Property(x => x.Relationship).HasMaxLength(30);
+            entity.Property(x => x.Phone).HasMaxLength(10);
+            entity.Property(x => x.Emergency).HasMaxLength(10);
+            entity.Property(x => x.Email).HasMaxLength(256);
+            entity.Property(x => x.Pickup).HasMaxLength(200);
+            entity.Property(x => x.Care).HasMaxLength(2000);
+            entity.Property(x => x.Height).HasPrecision(5, 2);
+            entity.Property(x => x.Weight).HasPrecision(5, 2);
+            entity.ToTable(table => table.HasCheckConstraint("CK_Students_Measurements",
+                "(\"Height\" IS NULL OR \"Height\" > 0 AND \"Height\" <= 250) AND (\"Weight\" IS NULL OR \"Weight\" > 0 AND \"Weight\" <= 300)"));
             entity.HasOne<School>().WithMany().HasForeignKey(x => x.SchoolId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<StudentInClass>(entity =>
+        {
+            ConfigureAudit(entity, "StudentInClasses");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.SchoolId, x.StudentId, x.StartDate });
+            entity.Property(x => x.AgeGroup).HasMaxLength(30);
+            entity.Property(x => x.StudyMode).HasMaxLength(30);
+            entity.HasOne<Student>().WithMany().HasForeignKey(x => new { x.SchoolId, x.StudentId })
+                .HasPrincipalKey(x => new { x.SchoolId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Classroom>().WithMany().HasForeignKey(x => new { x.SchoolId, x.ClassroomId })
+                .HasPrincipalKey(x => new { x.SchoolId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table => table.HasCheckConstraint("CK_StudentInClasses_Dates", "\"EndDate\" > \"StartDate\""));
         });
 
         builder.Entity<StudentAccount>(entity =>

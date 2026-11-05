@@ -7,6 +7,7 @@ import { feeFixtures, money } from '../fees/data';
 type Props = { kind: 'students' | 'teachers'; id?: string; mode?: string; navigate: (url: string) => void };
 export default function People({ kind, id, mode, navigate }: Props) {
   const teacher = kind === 'teachers';
+  const pageSize = teacher ? 6 : 15;
   const rows = teacher ? teachers : students;
   const base = `/preview/${kind}`;
   const label = teacher ? 'giáo viên' : 'học sinh';
@@ -14,7 +15,7 @@ export default function People({ kind, id, mode, navigate }: Props) {
   const [classroom, setClassroom] = useState('');
   const [status, setStatus] = useState('');
   const filteredRows = rows.filter(row => (!classroom || row.classroom === classroom) && (!status || row.status === status) && (tab !== 'Mới nhập học' || row.id === 'HS0261') && (tab !== 'Tạm nghỉ' || row.status === 'Tạm nghỉ') && (tab !== 'Đang công tác' || row.status === 'Đang công tác'));
-  const list = useListFilters(filteredRows, row => `${row.name} ${row.id} ${row.contact}`);
+  const list = useListFilters(filteredRows, row => `${row.name} ${row.id} ${row.contact}`, pageSize);
   const person = rows.find(row => row.id === id);
   if (mode === 'edit' && !person) return <EmptyState title="Không tìm thấy hồ sơ mẫu"><RouteLink navigate={navigate} to={base}>Quay về danh sách</RouteLink></EmptyState>;
   if (mode === 'new' || mode === 'edit') return <PersonForm teacher={teacher} person={mode === 'edit' ? person : undefined} navigate={navigate} />;
@@ -34,7 +35,7 @@ export default function People({ kind, id, mode, navigate }: Props) {
         { label: 'Trạng thái', render: row => <span className="badge">{row.status}</span> },
         { label: 'Thao tác', render: row => <RouteLink to={`${base}/${row.id}`} navigate={navigate}>Chi tiết</RouteLink> }
       ]} />
-      <Pagination count={list.filtered.length} page={list.page} onChange={list.setPage} />
+      <Pagination count={list.filtered.length} page={list.page} onChange={list.setPage} size={pageSize} />
     </Panel>
   </>;
 }

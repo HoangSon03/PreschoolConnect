@@ -38,6 +38,44 @@ not the year directory. The approved Teacher implementation now narrows Teacher
 class directory results and year class counts to currently assigned classes.
 SchoolAdmin retains school-wide directory access.
 
+## Student profile and enrollment APIs
+
+All `/api/students` routes require JWT and an active server-resolved school
+membership. Admin manages profiles and enrollments. Teacher reads only students
+currently enrolled in actively assigned classes; their DTOs exclude other-class
+history. Parent reads only their own `StudentAccount` mapping in that school.
+Lists contain only authorized rows; out-of-scope detail/write IDs return 404.
+Requests never use browser SchoolId/TeacherId/StudentId as proof of ownership.
+
+| API | Contract |
+|---|---|
+| `GET /api/students` | Authorized profile DTOs; UI search, class/status filters, new-this-month tab, counts, pagination and print use this dataset. |
+| `GET /api/students/{id}` | Same-scope profile plus authorized enrollment history. |
+| `POST /api/students` | `{ profile, enrollment? }`; create profile and optional initial enrollment atomically; 201 with DTO/Location. |
+| `PUT /api/students/{id}` | `{ profile, enrollment: null }`; update profile without changing enrollment; 200. |
+| `POST /api/students/{id}/enrollments` | `{ classroomId, startDate, ageGroup, studyMode }`; initial enrollment, re-enrollment, or atomic transfer; 200. |
+| `DELETE /api/students/{id}/enrollments/{enrollmentId}` | End today, retain the row; never physical deletion; 200. |
+
+`profile` contains `{ name, birthday, gender, address, guardian, relationship,
+phone, email, pickup, emergency, height, weight, care }`. Required names/contact
+fields are bounded; phone/emergency use ten digits, birthday cannot be future,
+optional email must be valid, optional height/weight must be positive with at
+most two decimal places (maximum 250 cm / 300 kg); care is at most 2000 characters.
+Empty measurements are null, not invented defaults.
+
+DTOs contain `{ id, profile, enrollments, status, isNew, today, lastActionAtUtc }`.
+The displayed code is exactly `id`. Enrollment DTOs include class/year IDs/names,
+inclusive start/exclusive end boundaries, age group, study mode and current teacher names
+(not reconstructed historical staffing). `today` is the server school-local date.
+First enrollment may be past; subsequent operations are today-only. Periods end
+naturally the day after the school year ends; ended history is immutable.
+
+Mutation roles and CSRF are checked server-side; unknown ownership/audit/body
+fields are rejected. Responses use no-store. Statuses: 400 invalid input/CSRF,
+401 missing/invalid JWT, 403 role/membership denial, 404 out-of-scope rows,
+409 overlap/concurrent writes, 503 pending operator migrations. No profile-delete,
+account-provisioning/linking, attendance, tuition or file-upload endpoint is added.
+
 ## Teacher personnel and assignment APIs
 
 All `/api/teachers` routes require JWT and an active server-resolved membership.

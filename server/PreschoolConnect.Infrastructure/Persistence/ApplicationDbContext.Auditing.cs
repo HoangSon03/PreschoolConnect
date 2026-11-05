@@ -17,6 +17,7 @@ public partial class ApplicationDbContext
     [
         "Name", "Slug", "IsActive", "StartDate", "EndDate", "SchoolYearId",
         "FirstName", "LastName", "PreferredName", "DateOfBirth",
+        "Guardian", "Relationship", "Pickup", "Emergency", "AgeGroup", "StudyMode",
         "Degree", "Graduated", "University", "Experience", "StartDate", "Contract", "Work",
         "Role", "StartedAtUtc", "EndedAtUtc", "UserId", "Gender", "Phone", "Email", "Address", "Birthday", "Certificate"
     ];
@@ -96,6 +97,16 @@ public partial class ApplicationDbContext
                      entry.Property(nameof(TeacherAssignment.EndedAtUtc)).CurrentValue is null ||
                      stored[nameof(TeacherAssignment.EndedAtUtc)] is not null))
                     throw new AuditPolicyException("Assignment history is immutable except for ending an active assignment.");
+                if (entry.Entity is StudentInClass)
+                {
+                    var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTimeOffset.UtcNow, "Asia/Ho_Chi_Minh").DateTime);
+                    if (entry.State == EntityState.Deleted ||
+                        new[] { "StudentId", "ClassroomId", "StartDate", "AgeGroup", "StudyMode" }
+                            .Any(name => !Equals(entry.Property(name).CurrentValue, stored[name])) ||
+                        (DateOnly)stored["EndDate"]! <= today || (DateOnly)stored["StartDate"]! >= today ||
+                        (DateOnly)entry.Property("EndDate").CurrentValue! != today)
+                        throw new AuditPolicyException("Enrollment history may only be ended today; identity and prior periods are immutable.");
+                }
             }
             await ValidateActiveParentsAsync(entry, async, cancellationToken);
             if (entry.State == EntityState.Deleted) await ValidateDeletionAsync(entry, async, cancellationToken);
@@ -103,6 +114,11 @@ public partial class ApplicationDbContext
                 (entry.Property(nameof(SchoolYear.StartDate)).IsModified || entry.Property(nameof(SchoolYear.EndDate)).IsModified) &&
                 await ExistsAsync(Classrooms.IgnoreQueryFilters().Where(item => item.SchoolId == year.SchoolId && item.SchoolYearId == year.Id), async, cancellationToken))
                 throw new AuditPolicyException("A school year referenced by classes cannot change dates.");
+            if (entry.Entity is Student changedStudent && entry.State == EntityState.Modified &&
+                entry.Property(nameof(Student.DateOfBirth)).IsModified &&
+                await ExistsAsync(StudentInClasses.IgnoreQueryFilters().Where(item => item.SchoolId == changedStudent.SchoolId &&
+                    item.StudentId == changedStudent.Id && item.StartDate < changedStudent.DateOfBirth), async, cancellationToken))
+                throw new AuditPolicyException("A student's birthday cannot follow retained enrollment history.");
         }
         foreach (var grant in grants)
         {
@@ -169,7 +185,10 @@ public partial class ApplicationDbContext
                 await ExistsAsync(SchoolMemberships.IgnoreQueryFilters().Where(item => item.SchoolId == school.Id), async, cancellationToken) ||
                 await ExistsAsync(Students.IgnoreQueryFilters().Where(item => item.SchoolId == school.Id), async, cancellationToken),
             SchoolYear year => await ExistsAsync(Classrooms.IgnoreQueryFilters().Where(item => item.SchoolId == year.SchoolId && item.SchoolYearId == year.Id), async, cancellationToken),
-            Student student => await ExistsAsync(StudentAccounts.IgnoreQueryFilters().Where(item => item.SchoolId == student.SchoolId && item.StudentId == student.Id), async, cancellationToken),
+            Student student => await ExistsAsync(StudentAccounts.IgnoreQueryFilters().Where(item => item.SchoolId == student.SchoolId && item.StudentId == student.Id), async, cancellationToken) ||
+                await ExistsAsync(StudentInClasses.IgnoreQueryFilters().Where(item => item.SchoolId == student.SchoolId && item.StudentId == student.Id), async, cancellationToken),
+            Classroom classroom => await ExistsAsync(StudentInClasses.IgnoreQueryFilters().Where(item => item.SchoolId == classroom.SchoolId && item.ClassroomId == classroom.Id), async, cancellationToken),
+            StudentInClass => true,
             _ => false
         };
         if (blocked) throw new AuditPolicyException("This business record has retained dependent records and cannot be soft deleted.");
@@ -212,6 +231,30 @@ public partial class ApplicationDbContext
             var newStudent = ChangeTracker.Entries<Student>().Any(item => item.State == EntityState.Added && item.Entity.Id == account.StudentId && item.Entity.SchoolId == schoolId);
             if (!newStudent && !await ExistsAsync(Students.Where(item => item.Id == account.StudentId && item.SchoolId == schoolId), async, cancellationToken))
                 throw new AuditPolicyException("Student accounts require a non-deleted student in the same school.");
+        }
+        if (entry.Entity is StudentInClass enrollment && entry.State == EntityState.Added)
+        {
+            var student = async
+                ? await Students.SingleOrDefaultAsync(row => row.Id == enrollment.StudentId && row.SchoolId == schoolId, cancellationToken)
+                : Students.SingleOrDefault(row => row.Id == enrollment.StudentId && row.SchoolId == schoolId);
+            var enrollmentClass = async
+                ? await Classrooms.SingleOrDefaultAsync(row => row.Id == enrollment.ClassroomId && row.SchoolId == schoolId, cancellationToken)
+                : Classrooms.SingleOrDefault(row => row.Id == enrollment.ClassroomId && row.SchoolId == schoolId);
+            var year = enrollmentClass is null ? null : async
+                ? await SchoolYears.SingleOrDefaultAsync(row => row.Id == enrollmentClass.SchoolYearId && row.SchoolId == schoolId, cancellationToken)
+                : SchoolYears.SingleOrDefault(row => row.Id == enrollmentClass.SchoolYearId && row.SchoolId == schoolId);
+            var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTimeOffset.UtcNow, "Asia/Ho_Chi_Minh").DateTime);
+            if (student is null || year is null || year.EndDate == DateOnly.MaxValue ||
+                enrollment.StartDate < student.DateOfBirth || enrollment.StartDate < year.StartDate ||
+                enrollment.StartDate > today || enrollment.StartDate > year.EndDate ||
+                enrollment.EndDate != year.EndDate.AddDays(1) ||
+                enrollment.AgeGroup is not ("Mầm · 3–4 tuổi" or "Chồi · 4–5 tuổi" or "Lá · 5–6 tuổi") ||
+                enrollment.StudyMode is not ("Bán trú" or "Cả ngày"))
+                throw new AuditPolicyException("Enrollment requires valid same-school student/class/year and a school-year-bounded period.");
+            var history = StudentInClasses.IgnoreQueryFilters().Where(row => row.SchoolId == schoolId && row.StudentId == enrollment.StudentId);
+            if (enrollment.StartDate != today && await ExistsAsync(history, async, cancellationToken) ||
+                await ExistsAsync(history.Where(row => row.StartDate < enrollment.EndDate && enrollment.StartDate < row.EndDate), async, cancellationToken))
+                throw new AuditPolicyException("Enrollment periods cannot overlap and re-enrollment must start today.");
         }
         if (entry.Entity is Teacher teacher && teacher.UserId.HasValue &&
             (entry.State == EntityState.Added || entry.Property(nameof(Teacher.UserId)).IsModified) &&

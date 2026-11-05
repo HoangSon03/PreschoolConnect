@@ -83,14 +83,14 @@ export function FilePicker({ label }: { label: string }) {
   }} /></label><p className="muted">{files.length ? files.join(', ') : 'Chưa chọn tệp.'} Tệp chỉ được chọn cục bộ, chưa tải lên.</p>{error && <Message error>{error}</Message>}</div>;
 }
 
-export function useListFilters<T>(rows: T[], text: (row: T) => string) {
+export function useListFilters<T>(rows: T[], text: (row: T) => string, size = 6) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const filtered = rows.filter(row => text(row).toLocaleLowerCase('vi-VN').includes(query.trim().toLocaleLowerCase('vi-VN')));
   const count = filtered.length;
-  const safePage = Math.min(page, Math.max(1, Math.ceil(count / 6)));
+  const safePage = Math.min(page, Math.max(1, Math.ceil(count / size)));
   useEffect(() => { setPage(1); }, [query]);
-  return { query, setQuery, page: safePage, setPage, filtered, visible: filtered.slice((safePage - 1) * 6, safePage * 6) };
+  return { query, setQuery, page: safePage, setPage, filtered, visible: filtered.slice((safePage - 1) * size, safePage * size) };
 }
 
 export function Search({ value, onChange, label = 'Tìm kiếm' }: { value: string; onChange: (value: string) => void; label?: string }) {

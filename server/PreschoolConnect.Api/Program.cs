@@ -14,6 +14,7 @@ using PreschoolConnect.Infrastructure.Persistence;
 using PreschoolConnect.Api.Auth;
 using PreschoolConnect.Infrastructure.Identity;
 using PreschoolConnect.Application.Teachers;
+using PreschoolConnect.Application.Students;
 
 var migrationCommand = args.Contains("--migrate", StringComparer.Ordinal);
 var resetAdminPasswordCommand = args.Contains("--reset-local-admin-password", StringComparer.Ordinal);
@@ -27,6 +28,7 @@ builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<AuthenticationExceptionHandler>();
 builder.Services.AddExceptionHandler<TeacherExceptionHandler>();
+builder.Services.AddExceptionHandler<StudentExceptionHandler>();
 builder.Services.AddExceptionHandler<AuditPolicyExceptionHandler>();
 builder.Services.AddSingleton<DatabaseStartupOperations>();
 
@@ -70,6 +72,8 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 builder.Services.AddScoped<AdminProvisioner>();
 builder.Services.AddScoped<ITeacherService, TeacherService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IStudentService, StudentService>();
 builder.Services.AddAuthentication();
 if (!migrationCommand && !resetAdminPasswordCommand && !provisionAdminCommand)
     builder.Services.AddJwtAuthentication(builder.Configuration);
@@ -238,6 +242,7 @@ app.MapGet("/api/auth/csrf", (IAntiforgery antiforgery, HttpContext httpContext)
 
 app.MapAuthenticationEndpoints();
 app.MapTeacherEndpoints();
+app.MapStudentEndpoints();
 
 app.MapGet("/api/tenant/context", [Authorize] async (
     HttpContext httpContext,

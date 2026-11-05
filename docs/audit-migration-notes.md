@@ -1,5 +1,28 @@
 # Audit migration notes
 
+## Student profile and enrollment extension
+
+`20261104102931_StudentProfilesAndEnrollment` follows TeacherProfiles. It extends
+Students in place, preserving existing identities, names, dates, audit metadata
+and account mappings. New contact/text fields start empty and measurements null;
+no contacts, health information or enrollment history are inferred/backfilled.
+Existing incomplete profiles must supply the required UI fields when edited.
+
+The migration adds StudentInClasses, the Student (SchoolId, Id) alternate key,
+restrictive composite student/class FKs, row auditing, date/measurement checks
+and immutable-history/retained-parent guards. Approved PostgreSQL bundled
+`btree_gist` is enabled using `CREATE EXTENSION IF NOT EXISTS`; the migration
+role needs the extension available and database CREATE privilege. Runtime roles
+need no schema privilege. The GiST exclusion constraint rejects all overlapping
+school/student date periods; it is not limited to current rows.
+
+Periods use school-local `Asia/Ho_Chi_Minh` dates and exclusive EndDate, initially
+the day after the class year ends. Transfers close then insert in one transaction;
+the only history update is ending an effective period today. The migration is
+forward-only; it does not create accounts or enrollments, remove old columns,
+seed data or run during ordinary API startup. Use the operator checklist below;
+implementation tests apply it only on a separate disposable PostgreSQL cluster.
+
 ## Teacher profile extension
 
 `20261104095259_TeacherProfiles` follows ClassroomIntegrity. It adds Teachers

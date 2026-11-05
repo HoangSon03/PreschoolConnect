@@ -1,7 +1,7 @@
 # Audit and soft-delete policy
 
 Implemented for the existing business model on 2026-11-03. This policy supersedes
-physical deletion of unused school years. Teacher delivery extends
+physical deletion of unused school years. Teacher and Student delivery extend
 this coverage; attendance, reporting and announcements remain separate modules.
 
 ## Coverage and deletion rules
@@ -10,8 +10,9 @@ this coverage; attendance, reporting and announcements remain separate modules.
 |---|---|---|
 | School | Yes | Reject while any business dependents exist, including tombstones. Usually deactivate instead. Audit events remain attached. |
 | SchoolYear | Yes | Reject when any classroom references it, including deleted classes. Referenced years cannot change dates. |
-| Classroom | Yes | Keep its original year relation immutable. |
-| Student | Yes | Reject while a student-account mapping exists, including retained rows. |
+| Classroom | Yes | Keep its original year relation immutable; reject deletion while any StudentInClass history exists. |
+| Student | Yes | Reject while a student-account mapping or enrollment history exists, including retained rows. |
+| StudentInClass | Yes, no delete operation | End by shortening EndDate to today, never deleting. Student/class/start/age-group/study-mode and already-ended history are immutable. Re-enrollment creates a new row; year-end expiration preserves the original boundary. |
 | SchoolMembership | Yes | Keep grants and Identity references. Deleted membership cannot authorize requests. |
 | StudentAccount | Yes | Preserve user/student identity and uniqueness permanently; no implicit remapping or reuse. |
 | Teacher | Yes | Retain personnel and linked Identity history; no profile-delete endpoint. Linked users cannot be reassigned. |

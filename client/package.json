@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test tests/preview.test.mjs tests/school-years.test.mjs tests/auth-session.test.mjs tests/teachers.test.mjs",
+    "test": "node --experimental-strip-types --test tests/preview.test.mjs tests/school-years.test.mjs tests/auth-session.test.mjs tests/teachers.test.mjs tests/students.test.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

@@ -21,7 +21,7 @@ application screens plus the UI reference; the earlier "23 screens plus referenc
 count was incorrect. Original logo/icons/font files are still missing.
 
 All supplied exports have explicit `/preview` routes. Their `/admin` equivalents
-remain API-gated; auth, class, school-year and Teacher operations below
+remain API-gated; auth, class, school-year, Teacher and Student operations below
 are wired to persistence. The preview is not a backend implementation or policy approval.
 
 ## Existing application and API baseline
@@ -52,6 +52,25 @@ are wired to persistence. The preview is not a backend implementation or policy 
 - Operations: `GET /api/health`, `GET /api/health/ready`.
 - Mutations must send JWT Bearer, antiforgery cookie/CSRF, server-validated school
   context, and SchoolAdmin authorization for school-year/class creation.
+
+### Student UI/API contract
+
+Real `/admin/students`, `/new`, `/{id}` and `/{id}/edit` retain the existing
+directory, form and profile design, without fixture imports or synthetic defaults.
+
+| UI requirement | Real behavior |
+|---|---|
+| List, name/record-ID/contact search, class/status filters, new-this-month tab, pagination, counts and print | `GET /api/students`; filtering is local to the authorized dataset. Student lists use 15 rows per page in real and preview routes. Displayed code is the database record ID. |
+| Personal, guardian/contact and optional health/care form | `POST /api/students` creates profile plus optional enrollment atomically; `PUT /api/students/{id}` edits profile only. No account is created or linked. |
+| Year/class/age-group/study-mode and admission date | Existing year/class APIs supply authorized options; class determines its year. Initial admission may be backdated; profile-only creation is allowed. |
+| Detail, current teachers and retained class history | `GET /api/students/{id}` or its authorized list DTO. Teachers see only eligible current class rows; mapped Parents/Admin can see retained history. |
+| Enrollment, transfer and withdrawal | `POST /api/students/{id}/enrollments` and DELETE of its enrollment ID. Transfers/withdrawals confirm, take effect today and preserve historical rows. Natural expiration is the end of the class year. |
+| Loading, empty, save-success and error states | Real request state; explicit validation/errors and retry. No preview fallback. |
+| Attendance, tuition and documents | Clearly unsupported panels under the confirmed Student scope; no fake attendance/fees/uploads. Room/capacity data is not invented. |
+
+Admin mutation buttons do not replace backend authorization. Student ID is a
+target, never proof of access. See [API contracts](../auth-and-authorization.md#student-profile-and-enrollment-apis)
+and [enrollment rules](../business-rules.md#enrollment-history).
 
 ### Classroom API contract - 2026-11-04
 
@@ -88,9 +107,9 @@ limitations are in the implementation-status document.
 | Figma frame | Node ID | Real workspace route | Preview implementation | Related API / dependency | Shared components |
 |---|---|---|---|---|---|
 | Preschool Connect · Tổng quan | `15:45117` | `/admin/dashboard` | Implemented first slice; full synthetic visual preview at `/preview/dashboard`, actual workspace shows only available class count | Classes/years/context available; dashboard statistics missing | Shell, PageHeader, Metric, EmptyState |
-| Preschool Connect · Học sinh | `15:44874` | `/admin/students` | `/preview/students`: query, class/status tabs/filters, local pagination | Student list API missing | DataTable, Search, Tabs, Pagination |
-| Preschool Connect · Hồ sơ học sinh | `15:44662` | `/admin/students/:studentId` | `/preview/students/HS0261`: profile, attendance/fees/documents tabs, edit link | Student detail/update API missing | Facts, Panel, Tabs, FilePicker |
-| Preschool Connect · Thêm học sinh | `15:44431` | `/admin/students/new` | `/preview/students/new`: validated form and attachment selection, no upload/save | Student create API missing | PreviewForm, Field, FilePicker |
+| Preschool Connect · Học sinh | `15:44874` | `/admin/students` | Real list/search/class-status filters and 15-row pagination; synthetic preview remains separate | `GET /api/students` | DataTable, Search, Tabs, Pagination |
+| Preschool Connect · Hồ sơ học sinh | `15:44662` | `/admin/students/:studentId`, `/admin/students/:studentId/edit` | Real profile, retained enrollment history, edit/transfer/withdrawal; unsupported attendance/fees/documents | `GET/PUT /api/students/{id}`, enrollment APIs | Facts, Panel, Tabs |
+| Preschool Connect · Thêm học sinh | `15:44431` | `/admin/students/new` | Real profile creation with optional initial enrollment; no account creation or upload | `POST /api/students` | Panel, Field |
 | Preschool Connect · Lớp học | `15:44130` | `/admin/classes` | Redesigned real list/search/year filter; grouped synthetic preview at `/preview/classes` | `GET /api/classes`; richer class data missing | Shell, PageHeader, Metric, class tiles, EmptyState |
 | Preschool Connect · Chi tiết lớp | `15:43873` | `/admin/classes/:classId` | `/preview/classes/1-1`: searchable sample roster, teacher links, routine, tabs | List data available; detail, roster, assignments missing | Panel, DataTable, Facts, Tabs |
 | Preschool Connect · Thêm lớp học | `15:43680` | `/admin/classes/new` | `/preview/classes/new`: room/capacity/assignment design. Real create retains supported name/year only | `POST /api/classes`, `GET /api/school-years`; richer fields missing | PreviewForm, Field, SchoolForm |

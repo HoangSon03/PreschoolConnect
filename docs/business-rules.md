@@ -9,6 +9,8 @@
 - No self-registration. Administrators provision and activate accounts. The first-login credential/setup handoff must be secure and verifiable; the delivery method is unresolved.
 - One dedicated student account maps to one student, and a student has at most one dedicated student account. Student parent/guardian contact fields remain on `Student`; there is no separate `Parents` entity.
 - Parent-facing APIs resolve the student from the authenticated account mapping. Never accept a client `StudentId` as proof of access.
+- **Approved Student delivery:** the displayed student code is the record's
+  immutable UUID `Id`; no separate code column, prefix or sequential counter.
 
 ## School years, classes, and teacher assignments
 
@@ -71,6 +73,34 @@
 - A student can have multiple enrollment rows over time. Do not overwrite or delete prior rows when promoting, transferring, or leaving a class.
 - Attendance and daily reports reference the enrollment row, not only the student or current class.
 - Transfers are one transaction: close the old enrollment, create the new enrollment, record the actor/time, and preserve the previous row.
+- **Approved Student delivery:** implement `StudentInClass` using half-open
+  `[StartDate, EndDate)` periods, with at most one class at a time across all
+  history. PostgreSQL's approved bundled `btree_gist` extension and exclusion
+  constraint reject overlaps, including concurrent requests.
+- Initial enrollment may be backdated, but not before the child's birthday or
+  outside the selected class's live same-school year, and not into the future.
+  EndDate initially equals the day after the year ends; enrollment naturally
+  expires at that boundary. School-local dates use `Asia/Ho_Chi_Minh`.
+- Transfers, withdrawal and re-enrollment take effect today. A transfer/withdrawal
+  cannot end an enrollment on its start date. Closing a period may only shorten
+  its EndDate to today; closed history, class/student identity and start dates
+  cannot be rewritten or deleted. Gaps and profiles without enrollment are allowed.
+- Status is derived: `Đang theo học` for an effective enrollment, `Chưa phân lớp`
+  if never enrolled, otherwise `Đã nghỉ học`. `Mới nhập học` means the first
+  enrollment starts in the current school-local month, not the latest transfer.
+  UI age-group and study-mode choices are stored on each enrollment; they do not
+  introduce class capacity or age-admission rules.
+- Admin manages same-school profiles/enrollments. Teacher reads only students
+  currently enrolled in their active assigned classes and sees only those current
+  enrollment rows, not other-class history. Parent reads only their server-mapped
+  student's profile/history. Ending assignments, pausing teachers, or removing
+  mappings/membership revokes the applicable access on the next request.
+- Student stores the UI's personal, guardian/contact, optional measurements and
+  care fields. Profile creation/editing does not create or link accounts.
+  Health/contact values are never copied to audit metadata or error messages.
+  Attendance, tuition and document-storage tabs show explicit unsupported states;
+  no mock records replace missing APIs in real routes.
+
 ## Attendance
 
 - MVP statuses: `Present`, `AbsentExcused`, `AbsentUnexcused`.

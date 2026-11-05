@@ -546,6 +546,16 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Care")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -558,10 +568,34 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly>("DateOfBirth")
                         .HasColumnType("date");
 
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Emergency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Gender")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Guardian")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("Height")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -584,11 +618,30 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Pickup")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("PreferredName")
                         .HasColumnType("text");
 
+                    b.Property<string>("Relationship")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
                     b.Property<Guid>("SchoolId")
                         .HasColumnType("uuid");
+
+                    b.Property<decimal?>("Weight")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
 
                     b.HasKey("Id");
 
@@ -603,6 +656,8 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Students_AuditTime", "\"LastActionAtUtc\" >= \"CreatedAtUtc\"");
 
                             t.HasCheckConstraint("CK_Students_LastAction", "\"LastAction\" IN ('I', 'U', 'D')");
+
+                            t.HasCheckConstraint("CK_Students_Measurements", "(\"Height\" IS NULL OR \"Height\" > 0 AND \"Height\" <= 250) AND (\"Weight\" IS NULL OR \"Weight\" > 0 AND \"Weight\" <= 300)");
                         });
                 });
 
@@ -663,6 +718,76 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_StudentAccounts_AuditTime", "\"LastActionAtUtc\" >= \"CreatedAtUtc\"");
 
                             t.HasCheckConstraint("CK_StudentAccounts_LastAction", "\"LastAction\" IN ('I', 'U', 'D')");
+                        });
+                });
+
+            modelBuilder.Entity("PreschoolConnect.Application.Models.StudentInClass", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AgeGroup")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("ClassroomId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("LastAction")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(1)
+                        .HasColumnType("character varying(1)");
+
+                    b.Property<DateTimeOffset>("LastActionAtUtc")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LastActionByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SchoolId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StudyMode")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("LastActionByUserId");
+
+                    b.HasIndex("SchoolId", "ClassroomId");
+
+                    b.HasIndex("SchoolId", "StudentId", "StartDate");
+
+                    b.ToTable("StudentInClasses", t =>
+                        {
+                            t.HasCheckConstraint("CK_StudentInClasses_AuditTime", "\"LastActionAtUtc\" >= \"CreatedAtUtc\"");
+
+                            t.HasCheckConstraint("CK_StudentInClasses_Dates", "\"EndDate\" > \"StartDate\"");
+
+                            t.HasCheckConstraint("CK_StudentInClasses_LastAction", "\"LastAction\" IN ('I', 'U', 'D')");
                         });
                 });
 
@@ -1054,6 +1179,33 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
                     b.HasOne("PreschoolConnect.Application.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PreschoolConnect.Application.Models.StudentInClass", b =>
+                {
+                    b.HasOne("PreschoolConnect.Application.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PreschoolConnect.Application.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("LastActionByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PreschoolConnect.Application.Models.Classroom", null)
+                        .WithMany()
+                        .HasForeignKey("SchoolId", "ClassroomId")
+                        .HasPrincipalKey("SchoolId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PreschoolConnect.Application.Models.Student", null)
+                        .WithMany()
+                        .HasForeignKey("SchoolId", "StudentId")
+                        .HasPrincipalKey("SchoolId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

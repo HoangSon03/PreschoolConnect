@@ -42,7 +42,9 @@ The requested direction is .NET 10 LTS / ASP.NET Core Web API / EF Core / Postgr
 
 1. What school time-zone identifier and calendar determine school-local attendance/report dates?
 2. Are users permitted to hold multiple school roles at once, and can one human be both staff and a parent?
-3. What precise enrollment statuses and effective-date rules apply to transfers, withdrawals, re-enrollment, and gaps?
+3. Any future retroactive enrollment correction workflow needs separate approval;
+   the approved Student delivery uses immutable ended history and today-only
+   transfers/withdrawals/re-enrollment, with gaps allowed. See [business rules](./business-rules.md#enrollment-history).
 4. Should a class-wide attendance submission be atomic (all-or-nothing) or allow per-student results?
 5. Who may edit a published report/attendance record, and what correction/audit trail is required?
 6. Which students qualify at announcement publication time, including withdrawn students and effective-date boundaries?

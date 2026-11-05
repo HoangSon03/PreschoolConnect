@@ -23,6 +23,19 @@ creation metadata, append-only AuditLogs, soft-delete filters and PostgreSQL
 no-physical-delete guards. This is the implemented counterpart of conceptual
 CLASS_TEACHER below, not timetable or document storage.
 
+**Implemented Student extension:** `Student.Id` is also its displayed code.
+The existing Student table retains FirstName/LastName/DateOfBirth and adds
+Gender/Address, guardian/relationship/phone/email/pickup/emergency, nullable
+Height/Weight and optional Care. No Parents table or new Identity model.
+`StudentInClass` (`StudentInClasses`) is the implemented enrollment counterpart
+below: audited UUID/SchoolId/StudentId/ClassroomId/StartDate/EndDate/AgeGroup/
+StudyMode, with restrictive same-school composite FKs. EndDate is required,
+exclusive and initially the year-end plus one day. The approved bundled
+`btree_gist` exclusion constraint rejects overlapping periods for each
+school/student, including concurrent inserts. History can only be shortened to
+today while effective; no physical/soft deletion or reopening. Retained
+enrollments block deletion of their student and class.
+
 ```mermaid
 erDiagram
   APP_USER {
@@ -227,8 +240,13 @@ erDiagram
   See [PostgreSQL 17 collations](https://www.postgresql.org/docs/17/collation.html)
   and [advisory locks](https://www.postgresql.org/docs/17/explicit-locking.html#ADVISORY-LOCKS).
 - `ClassTeacher`: composite FKs to the same-school class and membership; unique `(SchoolId, ClassId, UserId)`.
-- `StudentEnrollment`: proposed same-school enrollment history; constraints and
-  lifecycle require a separate approved implementation.
+- `StudentInClass`: implemented counterpart of conceptual `StudentEnrollment`;
+  composite same-school FKs, `EndDate > StartDate`, and approved `btree_gist`
+  exclusion constraint over `(SchoolId, StudentId, daterange(StartDate, EndDate, '[)'))`.
+  Transfers close the prior enrollment and create the next inside one transaction.
+  New periods are bounded by the class's non-deleted year. Application validation,
+  audit concurrency tokens and SQL history/dependency guards complement the
+  overlap constraint. See [approved enrollment rules](./business-rules.md#enrollment-history).
 - `AttendanceRecord`: unique `(EnrollmentId, AttendanceDate)`; status restricted to the MVP attendance set; checkout cannot precede check-in; date must fall within the enrollment's effective interval.
 - `DailyReport`: unique `(EnrollmentId, ReportDate)`; `NapDurationMinutes >= 0`; parents can read published records only. Published corrections require explicit actor/time audit.
 - `Announcement`: one `TargetType` (`School`, `Class`, `Student`) and matching target rows only; state/timestamps must be consistent. `CopyOfAnnouncementId` references the original without mutating it.
