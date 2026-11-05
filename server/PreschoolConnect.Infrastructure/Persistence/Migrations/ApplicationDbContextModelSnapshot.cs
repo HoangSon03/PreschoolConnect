@@ -2,7 +2,6 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PreschoolConnect.Infrastructure.Persistence;
@@ -14,7 +13,6 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
     [DbContext(typeof(ApplicationDbContext))]
     partial class ApplicationDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
@@ -304,6 +302,9 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("Capacity")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -328,11 +329,24 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("Room")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ScheduleJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<Guid>("SchoolId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("SchoolYearId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("WeeklyNotesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
 
                     b.HasKey("Id");
 
@@ -350,7 +364,13 @@ namespace PreschoolConnect.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_Classrooms_AuditTime", "\"LastActionAtUtc\" >= \"CreatedAtUtc\"");
 
+                            t.HasCheckConstraint("CK_Classrooms_Capacity", "\"Capacity\" IS NULL OR \"Capacity\" BETWEEN 1 AND 500");
+
                             t.HasCheckConstraint("CK_Classrooms_LastAction", "\"LastAction\" IN ('I', 'U', 'D')");
+
+                            t.HasCheckConstraint("CK_Classrooms_ScheduleJson", "jsonb_typeof(\"ScheduleJson\") = 'array' AND jsonb_array_length(\"ScheduleJson\") <= 20");
+
+                            t.HasCheckConstraint("CK_Classrooms_WeeklyNotesJson", "jsonb_typeof(\"WeeklyNotesJson\") = 'array' AND jsonb_array_length(\"WeeklyNotesJson\") <= 52");
                         });
                 });
 

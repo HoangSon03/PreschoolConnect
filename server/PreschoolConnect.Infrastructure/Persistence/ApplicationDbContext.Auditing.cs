@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using PreschoolConnect.Application.Models;
+using PreschoolConnect.Application.Classrooms;
 
 namespace PreschoolConnect.Infrastructure.Persistence;
 
@@ -18,6 +19,7 @@ public partial class ApplicationDbContext
         "Name", "Slug", "IsActive", "StartDate", "EndDate", "SchoolYearId",
         "FirstName", "LastName", "PreferredName", "DateOfBirth",
         "Guardian", "Relationship", "Pickup", "Emergency", "AgeGroup", "StudyMode",
+        "Room", "Capacity", "ScheduleJson", "WeeklyNotesJson",
         "Degree", "Graduated", "University", "Experience", "StartDate", "Contract", "Work",
         "Role", "StartedAtUtc", "EndedAtUtc", "UserId", "Gender", "Phone", "Email", "Address", "Birthday", "Certificate"
     ];
@@ -61,6 +63,9 @@ public partial class ApplicationDbContext
         // Validate the entire batch before stamping any entry.
         foreach (var entry in entries)
         {
+            if (entry.Entity is Classroom classroom && entry.State != EntityState.Deleted)
+                ClassroomRules.ValidateStored(classroom.Name, classroom.Room, classroom.Capacity,
+                    classroom.ScheduleJson, classroom.WeeklyNotesJson);
             var id = (Guid)entry.Property("Id").CurrentValue!;
             var schoolId = entry.Entity is School ? id : (Guid)entry.Property("SchoolId").CurrentValue!;
             await ValidateActorAsync(actor.UserId, schoolId, async, cancellationToken);

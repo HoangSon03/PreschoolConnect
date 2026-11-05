@@ -36,7 +36,7 @@ export default function SchoolForm({ kind, schoolId, years, canManage = true, on
   }
 
   return <>
-    <PageHeader title={kind === 'class' ? 'Thêm lớp học' : 'Cài đặt năm học'} subtitle="Không gian thật: chỉ lưu các trường backend đang hỗ trợ. Phòng, sức chứa, hồ sơ trường và phân công trong thiết kế chưa có API." />
+    <PageHeader title={kind === 'class' ? 'Thêm lớp học' : 'Cài đặt năm học'} subtitle="Tạo lớp theo tên và năm học. Phòng, sức chứa, lịch và lưu ý có thể khai báo trong màn chỉnh sửa sau khi tạo; phân công tại hồ sơ giáo viên." />
     <section className="card form-card">{error && <Message error>{error}</Message>}{notice && <Message>{notice}</Message>}
       {!canManage && <Message>Bạn có thể xem năm học. Chỉ quản trị viên trường có thể tạo mới.</Message>}
       <form onSubmit={submit}><fieldset disabled={pending || !canManage}>

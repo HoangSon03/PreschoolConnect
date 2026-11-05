@@ -81,6 +81,15 @@ public partial class ApplicationDbContext : IdentityDbContext<ApplicationUser, A
         builder.Entity<Classroom>(entity =>
         {
             ConfigureAudit(entity, "Classrooms");
+            entity.Property(x => x.Room).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.ScheduleJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.WeeklyNotesJson).HasColumnType("jsonb").IsRequired();
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint("CK_Classrooms_Capacity", "\"Capacity\" IS NULL OR \"Capacity\" BETWEEN 1 AND 500");
+                table.HasCheckConstraint("CK_Classrooms_ScheduleJson", "jsonb_typeof(\"ScheduleJson\") = 'array' AND jsonb_array_length(\"ScheduleJson\") <= 20");
+                table.HasCheckConstraint("CK_Classrooms_WeeklyNotesJson", "jsonb_typeof(\"WeeklyNotesJson\") = 'array' AND jsonb_array_length(\"WeeklyNotesJson\") <= 52");
+            });
             entity.HasKey(x => x.Id);
             entity.HasAlternateKey(x => new { x.SchoolId, x.Id });
             entity.HasIndex(x => new { x.SchoolYearId, x.Name }).IsUnique().HasFilter("\"LastAction\" <> 'D'");

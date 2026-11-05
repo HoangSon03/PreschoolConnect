@@ -21,7 +21,9 @@ export function setSession(accessToken: string, expiresAtUtc: string) {
 export type UserInfo = { userId: string; fullName: string; email: string; isActive: boolean; roles: string[] };
 export type TenantContext = { schoolId: string; membershipId: string; roles: string[] };
 export type SchoolYear = { id: string; schoolId: string; name: string; startDate: string; endDate: string; classCount?: number };
-export type Classroom = { id: string; schoolId: string; schoolYearId: string; name: string };
+export type ClassroomTeacher = { id: string; name: string; role: string };
+export type Classroom = { id: string; schoolId: string; schoolYearId: string; name: string;
+  room: string; capacity: number | null; studentCount: number; teachers: ClassroomTeacher[] };
 
 export async function responseMessage(response: Response) {
   const text = await response.text();

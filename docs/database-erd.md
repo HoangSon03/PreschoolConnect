@@ -23,6 +23,15 @@ creation metadata, append-only AuditLogs, soft-delete filters and PostgreSQL
 no-physical-delete guards. This is the implemented counterpart of conceptual
 CLASS_TEACHER below, not timetable or document storage.
 
+**Implemented Classroom metadata extension:** `Classrooms` retains its original
+School/SchoolYear identity and adds required Room (empty when unspecified),
+nullable Capacity, ScheduleJson and WeeklyNotesJson (`jsonb` arrays, initially
+empty). Routine entries are `{ Start, End, Activity }`; weekly notes are
+`{ WeekStart, Text }`. These are bounded parts of the audited classroom aggregate,
+not independent entities. PostgreSQL checks/triggers and application validation
+enforce capacity, interval, Monday/uniqueness and text bounds. Student counts and
+assigned teachers are derived from existing relations, never stored counters.
+
 **Implemented Student extension:** `Student.Id` is also its displayed code.
 The existing Student table retains FirstName/LastName/DateOfBirth and adds
 Gender/Address, guardian/relationship/phone/email/pickup/emergency, nullable

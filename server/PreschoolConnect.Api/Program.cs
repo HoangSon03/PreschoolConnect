@@ -15,6 +15,7 @@ using PreschoolConnect.Api.Auth;
 using PreschoolConnect.Infrastructure.Identity;
 using PreschoolConnect.Application.Teachers;
 using PreschoolConnect.Application.Students;
+using PreschoolConnect.Application.Classrooms;
 
 var migrationCommand = args.Contains("--migrate", StringComparer.Ordinal);
 var resetAdminPasswordCommand = args.Contains("--reset-local-admin-password", StringComparer.Ordinal);
@@ -29,6 +30,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<AuthenticationExceptionHandler>();
 builder.Services.AddExceptionHandler<TeacherExceptionHandler>();
 builder.Services.AddExceptionHandler<StudentExceptionHandler>();
+builder.Services.AddExceptionHandler<ClassroomExceptionHandler>();
 builder.Services.AddExceptionHandler<AuditPolicyExceptionHandler>();
 builder.Services.AddSingleton<DatabaseStartupOperations>();
 
@@ -74,6 +76,7 @@ builder.Services.AddScoped<AdminProvisioner>();
 builder.Services.AddScoped<ITeacherService, TeacherService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IStudentService, StudentService>();
+builder.Services.AddScoped<IClassroomService, ClassroomService>();
 builder.Services.AddAuthentication();
 if (!migrationCommand && !resetAdminPasswordCommand && !provisionAdminCommand)
     builder.Services.AddJwtAuthentication(builder.Configuration);
@@ -184,18 +187,8 @@ async Task<(SchoolContext? Context, IResult? Error)> ResolveRequestTenantAsync(
 IQueryable<Classroom> VisibleClassrooms(ApplicationDbContext db, SchoolContext context, HttpContext http, bool includeDeleted = false)
 {
     var admin = context.Roles.Contains(SchoolRoleNames.SchoolAdmin);
-    var query = (includeDeleted ? db.Classrooms.IgnoreQueryFilters() : db.Classrooms)
-        .AsNoTracking().Where(classroom => classroom.SchoolId == context.SchoolId);
-    if (!admin && context.Roles.Contains(SchoolRoleNames.Teacher))
-    {
-        var userId = Guid.Parse(http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
-        query = query.Where(classroom => classroom.LastAction != "D" && db.TeacherAssignments.Any(assignment =>
-            assignment.SchoolId == context.SchoolId && assignment.ClassroomId == classroom.Id &&
-            assignment.EndedAtUtc == null && assignment.LastAction != "D" &&
-            db.Teachers.Any(teacher => teacher.Id == assignment.TeacherId && teacher.LastAction != "D" &&
-                teacher.SchoolId == assignment.SchoolId && teacher.UserId == userId && teacher.IsActive)));
-    }
-    return query;
+    var userId = Guid.Parse(http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+    return ClassroomQueries.Visible(db, new(context.SchoolId, userId, admin), includeDeleted);
 }
 
 app.UseExceptionHandler(new ExceptionHandlerOptions
@@ -243,6 +236,7 @@ app.MapGet("/api/auth/csrf", (IAntiforgery antiforgery, HttpContext httpContext)
 app.MapAuthenticationEndpoints();
 app.MapTeacherEndpoints();
 app.MapStudentEndpoints();
+app.MapClassroomDetails();
 
 app.MapGet("/api/tenant/context", [Authorize] async (
     HttpContext httpContext,
@@ -505,7 +499,7 @@ app.MapGet("/api/classes", [Authorize] async (
     HttpContext httpContext,
     UserManager<ApplicationUser> userManager,
     SchoolContextResolver schoolContextResolver,
-    ApplicationDbContext db,
+    IClassroomService service,
     CancellationToken cancellationToken) =>
 {
     var access = await ResolveRequestTenantAsync(httpContext, userManager, schoolContextResolver, cancellationToken);
@@ -514,13 +508,13 @@ app.MapGet("/api/classes", [Authorize] async (
         return access.Error;
     }
 
-    var classes = await VisibleClassrooms(db, access.Context!, httpContext)
-        .AsNoTracking()
-        .Where(classroom => classroom.SchoolId == access.Context!.SchoolId)
-        .OrderBy(classroom => classroom.Name)
-        .Select(classroom => new { classroom.Id, classroom.SchoolId, classroom.SchoolYearId, classroom.Name })
-        .ToListAsync(cancellationToken);
-    return Results.Ok(classes);
+    if (!access.Context!.Roles.Contains(SchoolRoleNames.SchoolAdmin) &&
+        !access.Context.Roles.Contains(SchoolRoleNames.Teacher))
+        return Results.Forbid();
+    httpContext.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(await service.ListAsync(new(access.Context.SchoolId,
+        Guid.Parse(httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value),
+        access.Context.Roles.Contains(SchoolRoleNames.SchoolAdmin)), cancellationToken));
 }).RequireAuthorization();
 
 app.MapPost("/api/classes", [Authorize] async (

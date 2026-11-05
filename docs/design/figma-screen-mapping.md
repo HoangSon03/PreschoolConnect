@@ -72,17 +72,20 @@ Admin mutation buttons do not replace backend authorization. Student ID is a
 target, never proof of access. See [API contracts](../auth-and-authorization.md#student-profile-and-enrollment-apis)
 and [enrollment rules](../business-rules.md#enrollment-history).
 
-### Classroom API contract - 2026-11-04
+### Classroom API contract
 
-Approved scope is the existing real list and name/year creation form, not the
-richer preview-only class form.
+The approved extension uses the supplied detail image and Figma detail/create
+frames, preserving name/year-only creation and adding a separate metadata editor.
 
 | UI requirement | API capability |
 |---|---|
-| Name/year list and basic information dialog | `GET /api/classes` returns `[{ id, schoolId, schoolYearId, name }]`, active classes in the server-resolved school ordered by name. The dialog uses the selected list row; no separate detail API is needed. |
+| Real list and metrics | `GET /api/classes` returns `[{ id, schoolId, schoolYearId, name, room, capacity, studentCount, teachers: [{ id, name, role }] }]`. Student counts are effective today; teacher totals are distinct across the selected year. |
 | Name search and SchoolYear filter | Applied locally to the authorized list; no duplicate search endpoint. Options come from `GET /api/school-years`. |
 | Add class | Existing `POST /api/classes` accepts only `{ name, schoolYearId }`; returns 201 with `{ id, schoolId, schoolYearId, name }`. The client reloads the authorized list after saving. |
 | Empty/permission/error states | Empty lists remain empty; no preview fallback. The add button requires SchoolAdmin; server enforces the same rule and antiforgery protection. |
+| Detail and roster | `GET /api/classes/{id}` returns `{ classroom, schoolYearName, students: [{ id, name, birthday }], schedule, weeklyNotes, today, lastActionAtUtc }`. Search/pagination uses 15 students/page. Print includes the full authorized roster, not just the visible page. |
+| Metadata editing | `PUT /api/classes/{id}` accepts `{ name, room, capacity, schedule: [{ start, end, activity }], weeklyNotes: [{ weekStart, text }], lastActionAtUtc }`. Required timestamp rejects stale edits with 409. Name/year uniqueness remains; SchoolYear cannot be changed. |
+| Side panels/tabs | Real active teachers, Monday–Friday routine and current-week note. Attendance and documents explicitly unsupported, not mock data. Admin manages assignments through existing Teacher profiles. |
 
 Names are trimmed, required, at most 100 characters, and case-insensitively
 unique within a year among non-deleted classes (including Vietnamese letters).
@@ -90,14 +93,15 @@ unique within a year among non-deleted classes (including Vietnamese letters).
 401 requires authentication; 403 denies membership/role access; 404 rejects
 missing/deleted/cross-school years; 409 covers duplicate names, including
 concurrent inserts. Pending migrations return 503 through tenant resolution.
-The request never accepts SchoolId or audit fields. SchoolYearId must reference
+Creation never accepts SchoolId or audit fields. SchoolYearId must reference
 an active same-school year and cannot later be reassigned.
 
-Creation uses the existing transactional audit pipeline. Retained class
+Creation and editing use the existing transactional audit pipeline. Retained class
 tombstones remain related to their original year and still prevent year
-deletion/date changes. No class update/delete API, roster, assignment, capacity,
-room, age-group or start-date backend was added. Those remain explicitly
-separate preview fixtures, never data in the real Classroom workflow.
+deletion/date changes. Room is free text and capacity informational only.
+There is no class delete API, separate Room module, planned start-date or class
+age-group metadata. Admin edits own-school classes; Teacher reads assigned
+classes only; Parent is forbidden.
 
 ## Frame inventory
 
@@ -110,9 +114,9 @@ limitations are in the implementation-status document.
 | Preschool Connect · Học sinh | `15:44874` | `/admin/students` | Real list/search/class-status filters and 15-row pagination; synthetic preview remains separate | `GET /api/students` | DataTable, Search, Tabs, Pagination |
 | Preschool Connect · Hồ sơ học sinh | `15:44662` | `/admin/students/:studentId`, `/admin/students/:studentId/edit` | Real profile, retained enrollment history, edit/transfer/withdrawal; unsupported attendance/fees/documents | `GET/PUT /api/students/{id}`, enrollment APIs | Facts, Panel, Tabs |
 | Preschool Connect · Thêm học sinh | `15:44431` | `/admin/students/new` | Real profile creation with optional initial enrollment; no account creation or upload | `POST /api/students` | Panel, Field |
-| Preschool Connect · Lớp học | `15:44130` | `/admin/classes` | Redesigned real list/search/year filter; grouped synthetic preview at `/preview/classes` | `GET /api/classes`; richer class data missing | Shell, PageHeader, Metric, class tiles, EmptyState |
-| Preschool Connect · Chi tiết lớp | `15:43873` | `/admin/classes/:classId` | `/preview/classes/1-1`: searchable sample roster, teacher links, routine, tabs | List data available; detail, roster, assignments missing | Panel, DataTable, Facts, Tabs |
-| Preschool Connect · Thêm lớp học | `15:43680` | `/admin/classes/new` | `/preview/classes/new`: room/capacity/assignment design. Real create retains supported name/year only | `POST /api/classes`, `GET /api/school-years`; richer fields missing | PreviewForm, Field, SchoolForm |
+| Preschool Connect · Lớp học | `15:44130` | `/admin/classes` | Real list/search/year filter, student/teacher counts and detail links; separate synthetic preview | `GET /api/classes` | Shell, PageHeader, Metric, class tiles, EmptyState |
+| Preschool Connect · Chi tiết lớp | `15:43873` | `/admin/classes/:classId`, `/admin/classes/:classId/edit` | Real roster, teacher sidebar, routine, note, tabs and Admin metadata editor; unsupported attendance/documents | `GET/PUT /api/classes/{id}` | Panel, DataTable, Facts, Tabs |
+| Preschool Connect · Thêm lớp học | `15:43680` | `/admin/classes/new` | Real create retains name/year; metadata edited after creation; assignment through Teacher profile | `POST /api/classes`, `GET /api/school-years` | PreviewForm, Field, SchoolForm |
 | Preschool Connect · Giáo viên | `15:43436` | `/admin/teachers` | `/preview/teachers`: query, class/status filters, pagination | Teacher list API missing | DataTable, Search, Tabs, Pagination |
 | Preschool Connect · Hồ sơ giáo viên | `15:43226` | `/admin/teachers/:teacherId` | `/preview/teachers/GV001`: profile, schedule, documents, edit link | Teacher detail/update API missing | Facts, Panel, Tabs |
 | Preschool Connect · Thêm giáo viên | `15:43015` | `/admin/teachers/new` | `/preview/teachers/new`: personal/professional/work fields; no account creation | Teacher create API missing | PreviewForm, Field |

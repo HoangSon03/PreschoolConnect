@@ -1,5 +1,20 @@
 # Audit migration notes
 
+## Classroom metadata extension
+
+`20261105091912_ClassroomDetails` follows StudentProfilesAndEnrollment and adds
+Room (empty), Capacity (null), ScheduleJson and WeeklyNotesJson (empty JSON arrays).
+No enrollment, assignment, account or classroom is inferred or seeded.
+Capacity and JSON bounds use CHECK constraints; a row trigger validates schedule
+intervals, activity/note text and unique Monday week dates. Existing audit guards
+and immutable SchoolYear ownership remain in force. Audit records include changed
+field names, not note text or room values.
+
+The migration is forward-only. Ordinary startup does not apply it; use the
+existing operator backup/target-verification checklist. Implementation verification
+applies migrations only through the disposable loopback PostgreSQL test harness,
+not against the ordinary application database.
+
 ## Student profile and enrollment extension
 
 `20261104102931_StudentProfilesAndEnrollment` follows TeacherProfiles. It extends

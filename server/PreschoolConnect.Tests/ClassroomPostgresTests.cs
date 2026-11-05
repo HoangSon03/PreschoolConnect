@@ -77,10 +77,11 @@ public class ClassroomPostgresTests
             var school = new School { Id = Guid.NewGuid(), Name = "Synthetic legacy school", Slug = "legacy-class" };
             var year = Year(school.Id, "Legacy", 2026);
             db.AddRange(school, year);
-            db.Classrooms.AddRange(
-                new Classroom { Id = Guid.NewGuid(), SchoolId = school.Id, SchoolYearId = year.Id, Name = "LỚP MẦM" },
-                new Classroom { Id = Guid.NewGuid(), SchoolId = school.Id, SchoolYearId = year.Id, Name = "lớp mầm" });
             await db.SaveChangesAsync();
+            await using var legacy = new NpgsqlConnection(connection);
+            await legacy.OpenAsync();
+            await ExecuteAsync(legacy, InsertClass(Guid.NewGuid(), school.Id, year.Id, "LỚP MẦM"));
+            await ExecuteAsync(legacy, InsertClass(Guid.NewGuid(), school.Id, year.Id, "lớp mầm"));
             var before = await db.AuditLogs.CountAsync();
             var exception = await Assert.ThrowsAsync<PostgresException>(() => db.Database.MigrateAsync());
             Assert.Contains("Classroom names conflict. Correct existing records", exception.MessageText);

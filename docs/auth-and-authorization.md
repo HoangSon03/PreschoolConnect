@@ -16,6 +16,15 @@ Use ASP.NET Core Identity for user/password management and JWT Bearer authentica
 
 ## Role and access matrix (proposed baseline)
 
+Implemented Classroom detail/update follows the stricter assignment boundary:
+`GET /api/classes` and `GET /api/classes/{id}` return own-school classes for Admin
+or currently assigned classes for Teacher; Parent is forbidden. `PUT
+/api/classes/{id}` is Admin-only and requires CSRF plus LastActionAtUtc for
+optimistic concurrency. The strict body accepts Name, Room, Capacity, Schedule,
+WeeklyNotes and LastActionAtUtc, not SchoolId, TeacherId, SchoolYearId or other
+audit/ownership fields. Nested routine/note objects also reject unknown fields.
+Membership and active teacher/assignment access are resolved again per request.
+
 | Capability | SchoolAdmin | Teacher assigned to class | Parent mapped to student |
 |---|---:|---:|---:|
 | Manage school/class/year/membership | Yes, own school | No | No |

@@ -7,6 +7,7 @@ import SchoolYears from './features/school/SchoolYears';
 import PreviewRoutes from './features/PreviewRoutes';
 import Teachers from './features/people/Teachers';
 import Students from './features/people/Students';
+import ClassroomDetails from './features/classes/ClassroomDetails';
 import { RouteLink } from './components/design';
 import { isKnownPagePath } from './lib/preview';
 import { clearSession, getAccessToken, setSession, errorMessage, mutate, request, type Classroom, type SchoolYear, type TenantContext, type UserInfo } from './lib/api';
@@ -192,6 +193,8 @@ export default function App() {
             canManage={canCreate} classrooms={classes} navigate={navigate} onAssignmentsChanged={loadSchool} /> :
           section === 'students' && tenant ? <Students key={`${tenant.schoolId}:${path}`} path={path} schoolId={tenant.schoolId}
             canManage={canCreate} classrooms={classes} years={years} navigate={navigate} /> :
+          section === 'classes' && deepPage && !path.endsWith('/new') && tenant ? <ClassroomDetails
+            key={`${tenant.schoolId}:${path}`} path={path} schoolId={tenant.schoolId} canManage={canCreate} navigate={navigate} onSaved={loadSchool} /> :
           section === 'classes' && path.endsWith('/new') ? preview || !canCreate || !tenant ? <Message error>Không thể tạo lớp trong bản mẫu hoặc khi chưa có quyền quản trị.</Message> : <SchoolForm key="class" kind="class" schoolId={tenant.schoolId} years={years} onSaved={loadSchool} /> :
           section === 'classes' && !deepPage ? <Classes preview={preview} classrooms={classes} years={years} search={search} onSearch={setSearch} canCreate={canCreate} onCreate={() => navigate(`${prefix}/classes/new`)} navigate={navigate} /> :
           section === 'settings' && tenant ? <SchoolYears preview={false} schoolId={tenant.schoolId} years={years} classrooms={classes} canManage={canCreate} onSaved={loadSchool} navigate={navigate} /> :

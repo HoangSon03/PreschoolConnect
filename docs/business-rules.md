@@ -35,11 +35,26 @@
   100 characters, and unique within a school year among non-deleted classes,
   ignoring case (including Vietnamese letters). A deleted class does not reserve
   its name. The original SchoolYear association is immutable.
-- Classroom delivery is limited to the existing real name/year create, list,
-  search/year filter and basic-information dialog. Preview age groups, rooms,
-  capacity, planned start dates, notes, rosters and teacher assignments are not
-  approved backend requirements for this delivery. Edit/delete APIs are not
-  included in that delivery. The subsequent Teacher delivery below adds assignments.
+- **Approved Classroom extension:** keep name/year creation; add real detail and
+  Admin-only editing of name, free-text room (100 characters), optional capacity
+  (integer 1–500), weekday routine and weekly notes. Capacity is informational,
+  never an enrollment limit. School/year/assignments remain unchanged by editing.
+  Room is not a separate entity; planned opening dates and age-group metadata
+  remain outside this extension.
+- Class student counts/rosters use live same-school StudentInClass periods
+  `[StartDate, EndDate)` effective today in Asia/Ho_Chi_Minh and within the
+  class year's dates. Teacher summaries include active profiles with unended,
+  non-deleted assignments. Aggregate teacher totals count distinct profile IDs.
+- The routine applies Monday–Friday, with at most 20 non-overlapping
+  minute-precision start/end intervals and required activity text (200 characters).
+  Adjacent intervals are valid. At most 52 notes have unique Monday week-start
+  dates and required text (2000 characters); the detail shows the current week.
+- Admin reads/manages own-school classes. Teacher reads assigned classes only;
+  inactive/deleted profiles or ended/deleted assignments revoke access. Parent
+  has no class directory/detail. Updates require the last observed audit timestamp
+  and reject stale edits. Metadata uses the existing audit/soft-delete pipeline.
+  Attendance and document storage are not included; their UI shows unsupported
+  states rather than fabricated data.
 
 ### Approved Teacher delivery
 

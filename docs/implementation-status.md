@@ -1,5 +1,37 @@
 # Implementation Status
 
+## Classroom counts, detail and metadata editing
+
+- Real class cards show effective student counts, active assigned teachers,
+  room and optional capacity. Selected-year teacher totals use distinct IDs.
+- Added `/admin/classes/:id` with the supplied image/Figma detail layout:
+  searchable 15-row roster, full-roster print, teacher sidebar, information and
+  unsupported-document tabs, Monday–Friday routine and current-week note.
+  Admin-only `/admin/classes/:id/edit` edits name, room, informational capacity,
+  bounded non-overlapping activities and Monday-keyed weekly notes. Existing
+  name/year creation and Teacher assignment workflows remain unchanged.
+- Added strict GET/PUT detail contracts, request-time JWT/membership/assignment
+  checks, optimistic timestamp conflict detection and minimal audit field names.
+  Parent cannot access class list/detail; teachers cannot modify classes.
+- `20261105091912_ClassroomDetails` preserves existing rows and adds JSON/metadata
+  constraints and a forward-only migration. It was generated and tested against
+  disposable loopback PostgreSQL. After separate explicit approval and confirmation
+  of the local test-data target, the operator command applied it to local development
+  following a private backup/archive check. No seed or account changes ran;
+  readiness passed and a nonexistent synthetic login returned 401 rather than
+  the pending-schema 503. No authenticated local-browser login was claimed.
+- Browser smoke checks used synthetic API intercepts for pagination (15 of 16),
+  search, complete print roster (16), unsupported documents, metadata save payload
+  and mobile overflow, empty/error/retry states and Teacher read-only controls.
+  **115 related backend tests and 25 frontend tests passed, zero failures/skips**;
+  Release compilation and TypeScript/Vite production build passed.
+  The independent Classroom publication snapshot subsequently passed the full
+  **132 backend tests**, 25 frontend tests and production build with no skips.
+  Browser checks are not authenticated browser end-to-end checks
+  against the ordinary application database. Local icons come from the supplied
+  Figma detail context; the list frame fetch hit the Figma tool limit, so existing
+  list components were preserved instead of claiming a newly inspected frame.
+
 ## Student profiles and enrollment history
 
 - Implemented the existing Student list, record-ID/name/contact search,
