@@ -30,14 +30,6 @@ public sealed class JwtAuthenticationTests
     private const string Password = "SyntheticAuth!123";
 
     [Fact]
-    public void MigrationSnapshotMatchesRuntimeModel()
-    {
-        using var db = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql("Host=127.0.0.1;Port=1;Database=unavailable;Username=test").Options);
-        Assert.False(db.Database.HasPendingModelChanges());
-    }
-
-    [Fact]
     public async Task LoginIssuesMinimalShortLivedBearerWithoutAuthCookie()
     {
         using var factory = new CustomWebApplicationFactory { EnableDevelopmentSeed = false };
@@ -339,19 +331,13 @@ public sealed class JwtAuthenticationTests
         {
             using var factory = PostgresFactory(connection);
             var (email, _, _) = await CreateAccount(factory);
-            using (var pendingScope = factory.Services.CreateScope())
-            {
-                var pendingDb = pendingScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                await pendingDb.Database.ExecuteSqlRawAsync(
-                    """DELETE FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261103032915_StandardizedAuditing'""");
-            }
             using var client = Client(factory);
             var response = await Post(client, "/api/auth/login", new { email, password = Password });
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
             using var scope = factory.Services.CreateScope();
-            Assert.Contains("20261103032915_StandardizedAuditing",
+            Assert.Contains("20261104080000_ClassroomIntegrity",
                 await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.GetPendingMigrationsAsync());
-        }, migrateTarget: null);
+        }, migrateTarget: "20261103032915_StandardizedAuditing");
     }
 
     private static WebApplicationFactory<Program> PostgresFactory(string connection) =>

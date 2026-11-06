@@ -2,9 +2,17 @@
 
 ## Status
 
-The workspace-level remote server configuration is present. OAuth has not yet
-been completed, and Figma tools have not been verified in Copilot. No Figma
-design files have been read or changed as part of this setup.
+The workspace-level remote server configuration is present. The current OAuth
+and exposed-tool state has not been independently verified in this remediation.
+Earlier project notes conflict: this setup record said OAuth was incomplete,
+while the design status later reported an authenticated MCP session whose
+Starter-plan quota blocked design-context/screenshots. Browser access to a Figma
+file is not evidence that VS Code MCP OAuth is connected. No Figma operation
+was performed in this remediation.
+
+This file documents only the VS Code workspace configuration in
+`.vscode/mcp.json`. It does not describe ChatGPT's Figma MCP connection or
+Figma's separate AI/Agent credits and quotas.
 
 ## Endpoint and configuration
 

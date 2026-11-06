@@ -46,7 +46,7 @@ Prerequisites: the project-pinned .NET 10 SDK, Node.js/npm, and the PostgreSQL 1
    ```powershell
    Set-Location .\client
    npm ci
-   npm run dev -- --host 127.0.0.1
+   npm run dev
    ```
 
 4. Open `http://127.0.0.1:5173`. The Vite development server proxies `/api` requests to `http://localhost:5155`.
@@ -117,8 +117,8 @@ supplied Figma screenshots; they do not require a backend, request school data,
 upload attachments, send messages, or persist edits.
 
 The real workspace uses `/admin/dashboard`, `/admin/classes`,
-`/admin/classes/new`, `/admin/teachers` and `/admin/settings`, with JWT Bearer authentication and
-server-validated school access. Student/attendance statistics are not
+`/admin/classes/new` and `/admin/settings`, with JWT Bearer authentication and
+server-validated school access. Student/staff/attendance statistics are not
 available yet; real pages do not substitute preview values. Login is at `/login`.
 Production hosting must provide SPA fallback to `index.html` for page routes.
 
@@ -151,7 +151,7 @@ the API against an existing database. Restoration and automatic purge are not
 supported; Identity keeps its separate framework lifecycle.
 
 See [Figma mapping](./docs/design/figma-screen-mapping.md) and
-[implementation status](./docs/implementation-status.md).
+[redesign status/known differences](./docs/design/figma-implementation-status.md).
 All supplied screen exports have preview implementations. This is not a complete
 production workflow: most business APIs are absent. The Help export and original
 icon/logo/font assets are still missing; visual parity is not claimed.
@@ -166,11 +166,10 @@ From the project root:
 
 `npm test` in `client` runs the dependency-free Node route/form regression tests
 (Node 22.18+ or 24 recommended). `npm run build` includes strict TypeScript
-checking and the Vite production build. The existing verification script runs backend tests and the frontend build
-using `$HOME\.dotnet\dotnet.exe`. To use the SDK selected by `global.json`
-from PATH instead, run `dotnet test .\server\PreschoolConnect.Tests\PreschoolConnect.Tests.csproj`
-at the root, then `npm test` and `npm run build` in `client`.
-Browser verification coverage and limitations are in the implementation
+checking and the Vite production build. The verification script runs backend
+tests, frontend tests and build. It prefers `$HOME\.dotnet\dotnet.exe` when
+present and otherwise uses `dotnet` from PATH; `global.json` selects the required
+SDK version. Browser smoke-test coverage and limitations are in the redesign
 status document.
 
 Optional PostgreSQL integrity tests use the existing Npgsql provider and create/

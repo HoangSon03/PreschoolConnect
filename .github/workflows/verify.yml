@@ -1,0 +1,56 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only-password
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PRESCHOOL_TEST_POSTGRES: Host=127.0.0.1;Port=5432;Database=postgres;Username=postgres;Password=test-only-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.403
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Restore backend
+        run: dotnet restore server/PreschoolConnect.Tests/PreschoolConnect.Tests.csproj
+      - name: Build backend
+        run: dotnet build server/PreschoolConnect.Tests/PreschoolConnect.Tests.csproj --no-restore --nologo
+      - name: Test backend with isolated PostgreSQL
+        run: dotnet test server/PreschoolConnect.Tests/PreschoolConnect.Tests.csproj --no-build --no-restore --nologo -v minimal
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: client
+      - name: Test frontend
+        run: npm test
+        working-directory: client
+      - name: Type-check and build frontend
+        run: npm run build
+        working-directory: client

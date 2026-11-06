@@ -1,6 +1,6 @@
 # ADR 0001: PostgreSQL as the database
 
-- **Status:** Accepted by the project brief; implementation is pending.
+- **Status:** Accepted by the project brief; PostgreSQL persistence is implemented, while the ordinary local database's applied migration state is unverified.
 - **Date:** 2026-10-30
 
 ## Context
@@ -20,7 +20,7 @@ Use PostgreSQL for local development, tests that require relational behavior, st
 ## Consequences and trade-offs
 
 - Local and production database behavior stays aligned, especially for composite keys, exclusion constraints, date types, and transactions.
-- Development requires PostgreSQL tooling/server setup; none of `psql`, `pg_ctl`, or `postgres` was found on the current PATH during Milestone 00.
+- Development requires PostgreSQL tooling/server setup. The project includes local setup scripts and an optional isolated PostgreSQL integration-test harness.
 - PostgreSQL-specific features may require explicit migration SQL and database-level tests. Avoid claiming provider portability.
 - Keep secrets in environment/secret stores, not source control. Plan backup, restore, upgrades, and least-privilege database roles before a pilot.
 

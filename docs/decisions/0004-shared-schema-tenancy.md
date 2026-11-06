@@ -1,6 +1,6 @@
 # ADR 0004: Shared PostgreSQL schema with explicit school isolation
 
-- **Status:** Proposed for user approval.
+- **Status:** Implemented and formally approved by the user on 2026-11-03.
 - **Date:** 2026-10-30
 
 ## Context
@@ -9,7 +9,12 @@ The MVP launches with one school but is intended to become a multi-school SaaS. 
 
 ## Decision
 
-For approval, use one PostgreSQL database/schema with `SchoolId` on school-owned entities. Resolve the active school from the authenticated user's verified membership; derive a parent's student from the authenticated `StudentAccount`. Use explicit scoped application queries, per-operation authorization, composite school-aware unique keys and foreign keys, and cross-tenant tests.
+The current code uses one PostgreSQL schema with `SchoolId` on school-owned
+entities, resolves active school access through verified `SchoolMembership`
+records, and models the parent mapping through `StudentAccount`. It uses
+school-scoped queries and composite relationships where implemented. The user
+formally approved this architectural decision on 2026-11-03. Product workflows
+and complete cross-tenant tests remain incomplete.
 
 EF Core global query filters may add a safe default but are not the only control. PostgreSQL RLS may be evaluated later as defense in depth after connection-pooling, migration ownership, and privileged-role behavior are designed.
 
@@ -20,6 +25,13 @@ EF Core global query filters may add a safe default but are not the only control
 - Global query filters alone: rejected; filters can be bypassed and do not establish authorization or valid cross-table school relationships.
 - Finbuckle.MultiTenant: reviewed but not selected for the MVP. Explicit context is small enough initially; the repository currently announces a commercial maintenance fee whose terms were unavailable during this review.
 - RLS as the only enforcement: rejected; PostgreSQL documents owner and BYPASSRLS behavior, and application authorization is still required.
+
+## Approval record
+
+The user confirmed formal approval for this ADR during the remediation on
+2026-11-03. The school-year scope separately confirms active school members may
+view their own school's year/class lists, while mutations remain
+SchoolAdmin-only.
 
 ## Consequences and trade-offs
 

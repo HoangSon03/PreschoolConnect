@@ -1,33 +1,46 @@
 # Preschool Connect agent guidance
 
-## Scope and source of truth
+These instructions apply only to this standalone `PreschoolConnect/` repository. Do not modify or inspect the adjacent Personal Finance Tracker or its local data.
+This file and the linked canonical project docs define project requirements; skills only describe task-specific workflows.
 
-This file applies only inside `PreschoolConnect/`. The parent repository contains a separate Personal Finance Tracker with its own root instructions and contracts; do not apply its npm-workspace, Express/SQLite, finance API, or architecture assumptions to this project. Do not modify files outside this subtree unless the user explicitly asks. Never inspect, print, commit, or upload the parent project's local SQLite data.
+## Product and engineering sources of truth
 
-Product and engineering sources of truth:
+Read only the documents relevant to the task:
 
 1. [Product scope](docs/product-scope.md)
 2. [Architecture](docs/architecture.md) and [database ERD](docs/database-erd.md)
-3. [Business rules](docs/business-rules.md), [auth and authorization](docs/auth-and-authorization.md), and [security](docs/security.md)
+3. [Business rules](docs/business-rules.md), [authorization](docs/auth-and-authorization.md), and [security](docs/security.md)
 4. [Roadmap](docs/implementation-roadmap.md), [reuse analysis](docs/reuse-analysis.md), and [third-party inventory](docs/third-party-components.md)
 5. [Architecture Decision Records](docs/decisions/)
 
-Do not silently turn a recommendation or approval-required item into a business rule.
+Recommendations and approval-required items are not approved requirements.
 
-## Engineering rules
+## Non-negotiable safeguards
 
-- Keep child and parent data private. Use synthetic data only in prompts, logs, tests, and examples.
-- Do not expose credentials, tokens, production data, or sensitive database contents to agents or external tools.
-- PostgreSQL is the target from local development through production. Do not introduce SQLite, MongoDB, or another provider without explicit approval.
-- Preserve school boundaries in every API, application use case, database relation, and test. Resolve tenant/student identity server-side; never trust browser-supplied ownership IDs.
+- Keep child and parent data private. Use synthetic data in prompts, tests, logs, and examples; never disclose credentials, tokens, production data, or sensitive database contents.
+- Enforce school/student authorization server-side. Resolve tenant identity from verified membership; never trust browser-supplied ownership IDs. Preserve school boundaries in APIs, use cases, relations, and tests.
+- PostgreSQL is the sole database target. Do not introduce SQLite, MongoDB, or another provider without explicit approval.
 - Use ASP.NET Core Identity and framework password hashing. Never implement custom password hashing or public self-registration.
-- Research framework features, maintained packages, exact licenses, and dependency advisories before adopting code/packages. Record only actually adopted dependencies in the inventory.
-- Prefer small, testable changes and existing framework capabilities. Avoid generic repositories, CQRS/MediatR, microservices, brokers, and custom abstractions without a demonstrated need.
-- Read only the documentation relevant to the task. Before substantial work, inspect Git status and existing changes, then plan, implement, test, review the diff, and update directly related docs. Use small tasks and stable commits as checkpoints; never commit automatically.
-- Do not install/upgrade system software or commit/deploy automatically without approval. Use `scripts/verify.ps1` for the existing backend tests and frontend build; extend it only with checks that are available and safe to run.
-- Do not configure hooks that deploy, delete data, or perform uncontrolled edits.
-- MCP is deferred: ordinary GitHub tools suffice unless issue/PR workflows become repetitive; official documentation can be read directly; PostgreSQL schema exploration can use local tools with fake data and read-only credentials if it becomes valuable. Each proposed server needs a concrete benefit, permissions review, context/privacy assessment, and approval. Never grant agents unrestricted production-data access.
+- Do not connect to production or inspect the ordinary application database. Manual database access, migrations, seeds, or writes require explicit approval and a verified disposable target. Automated integration tests must use the existing loopback-only disposable-database safeguards.
+- Before adopting a dependency, verify maintained status, exact license, and security advisories; record only adopted dependencies in the inventory.
+- Preserve existing uncommitted changes. Do not install/upgrade system software, commit, push, or deploy unless explicitly requested.
 
-## Tooling discovery caveat
+## Delivery workflow
 
-This project is a sibling folder outside the PersonalFinanceTracker Git repository and currently has no Git metadata of its own. Check the actual working directory and source-control boundary before relying on Git status or diffs. The project instructions and `.github/copilot-instructions.md` are authoritative for PreschoolConnect.
+1. Do not run a repository-wide audit before implementation. Audits are separate and use `project-audit` only when explicitly requested.
+2. Inspect only task-relevant instructions, files, dependencies, and existing changes. Expand scope only when implementation or verification requires it; preserve unrelated user work.
+3. Use `feature-delivery` for feature implementations and issue fixes, including its final-report format. Also use `database-safety` whenever persistence, queries, migrations, tenant isolation, auditing, seeds, or database configuration are affected.
+4. Follow existing patterns; keep changes small and avoid unnecessary abstractions, duplicated logic, dependencies, and documentation. Update the existing canonical docs when behavior or configuration changes.
+5. Implement the requested functionality and run proportionate, relevant checks. Do not commit, push, or deploy unless requested.
+
+## Skill and tool routing
+
+- This file is the sole authoritative project-instruction source; task-specific procedures belong in skills.
+- Use Graphify for repository-relationship questions only when its CLI is available and the checked-in graph matches current source. Verify claims against source. If Graphify is unavailable or stale, inspect targeted source directly. Do not install Graphify or refresh its graph unless asked; any refresh must retain the documented code-only privacy exclusions.
+- Use Archify only when a diagram or explainer is requested. It is not a default reporting or audit tool.
+- Add a `.github/hooks/` hook only for a deterministic check supported by the active Copilot harness, with understood failure behavior and a safe, repository-local implementation. Do not assume hooks transfer between harnesses. If no suitable check can be tested, add no hook.
+- MCP is deferred. Add a server only after documenting concrete benefit, permissions, privacy impact, and approval; never grant agents unrestricted production-data access.
+
+## Repository boundary
+
+This project is a separate Git repository adjacent to `PersonalFinanceTracker`. Verify the actual repository root, branch, status, and source-control boundary before relying on Git status or diffs.
